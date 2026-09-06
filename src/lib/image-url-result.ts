@@ -1,7 +1,12 @@
 import { readPlainHttpApiBaseUrlAllowlist, RequestValidationError } from './image-request-utils';
 import { mergeUpstreamHeadersWithFixed, type UpstreamRequestHeaders } from './image-upstream-profile';
-import { isPublicIpAddress } from './network-security';
-import { createPinnedDnsDispatcher, fetchOpenAIUpstream, UpstreamResponseFormatError } from './openai-image-transport';
+import { isPublicIpAddress, isSyntheticDnsIpAddress } from './network-security';
+import {
+    createPinnedDnsDispatcher,
+    fetchOpenAIUpstream,
+    readSyntheticDnsSetting,
+    UpstreamResponseFormatError
+} from './openai-image-transport';
 import dns from 'node:dns/promises';
 import net from 'node:net';
 
@@ -60,6 +65,7 @@ export async function downloadSameOriginImageAsBase64(input: {
     upstreamProxyUrl?: string;
     upstreamHeaders?: UpstreamRequestHeaders;
     allowedPlainHttpBaseUrls?: string[];
+    allowSyntheticDns?: boolean;
     abortSignal?: AbortSignal;
     lookup?: typeof dns.lookup;
 }): Promise<string> {
@@ -85,7 +91,8 @@ export async function downloadSameOriginImageAsBase64(input: {
             pinnedDispatcher = await resolvePinnedRemoteHost(
                 url.hostname,
                 input.lookup ?? dns.lookup,
-                controller.signal
+                controller.signal,
+                input.allowSyntheticDns ?? readSyntheticDnsSetting()
             );
         }
         const response = await fetchOpenAIUpstream(
@@ -137,7 +144,12 @@ export async function downloadSameOriginImageAsBase64(input: {
     }
 }
 
-async function resolvePinnedRemoteHost(hostname: string, lookup: typeof dns.lookup, signal?: AbortSignal) {
+async function resolvePinnedRemoteHost(
+    hostname: string,
+    lookup: typeof dns.lookup,
+    signal?: AbortSignal,
+    allowSyntheticDns = false
+) {
     const normalizedHostname = hostname.replace(/^\[|\]$/g, '');
     const literalFamily = net.isIP(normalizedHostname);
     if (literalFamily) {
@@ -153,10 +165,13 @@ async function resolvePinnedRemoteHost(hostname: string, lookup: typeof dns.look
         if (signal?.aborted) throw error;
         throw new RemoteImageResultError('上游图片 URL 主机无法解析，已拒绝下载。');
     }
-    if (addresses.length === 0 || addresses.some(({ address }) => !isPublicIp(address))) {
+    const safeAddresses = addresses.filter(
+        ({ address }) => isPublicIp(address) || (allowSyntheticDns && isSyntheticDnsIpAddress(address))
+    );
+    if (addresses.length === 0 || safeAddresses.length !== addresses.length) {
         throw new RemoteImageResultError('上游图片 URL 解析到了被禁止的本地或内网地址。');
     }
-    return createPinnedDnsDispatcher(addresses);
+    return createPinnedDnsDispatcher(safeAddresses);
 }
 
 async function lookupWithAbort(

@@ -94,6 +94,27 @@ describe('downloadSameOriginImageAsBase64', () => {
         );
     });
 
+    it('allows explicit synthetic DNS addresses for public hostnames only when enabled', async () => {
+        globalThis.fetch = async (_url, init) => {
+            assert.ok(init && 'dispatcher' in init && init.dispatcher);
+            return new Response(Buffer.from('png'), {
+                status: 200,
+                headers: { 'content-type': 'image/png' }
+            });
+        };
+
+        const input = {
+            imageUrl: 'https://cdn.example.com/result.png',
+            apiBaseUrl: 'https://api.example.test/v1',
+            lookup: (async () => [
+                { address: '198.18.0.1', family: 4 }
+            ]) as unknown as typeof import('node:dns/promises').lookup
+        };
+        await assert.rejects(() => downloadSameOriginImageAsBase64(input), /禁止的本地或内网/);
+        const result = await downloadSameOriginImageAsBase64({ ...input, allowSyntheticDns: true });
+        assert.equal(result, Buffer.from('png').toString('base64'));
+    });
+
     it('honors an already-aborted request before performing DNS resolution', async () => {
         const controller = new AbortController();
         controller.abort();
