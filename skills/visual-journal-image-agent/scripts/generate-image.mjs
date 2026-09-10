@@ -18,7 +18,6 @@ import {
 import {
     errorMessage,
     assertValidImageSizeForModel,
-    DEFAULT_IMAGE_MODEL,
     normalizeOutputFormat,
     parseImageSizeValue,
     parseRetryAfterValue,
@@ -29,6 +28,7 @@ import {
     readPartialImages,
     loadPrivateAgentEnvFile,
     resolveAgentToken,
+    resolveConfiguredDefaultImageModel,
     resolvePlaygroundBaseUrl,
     resolveCapabilitiesDefaultImageModel,
     resolveSameOriginUrl,
@@ -53,7 +53,6 @@ const STREAM_MODES = new Set(['auto', 'stream', 'non_stream']);
 const THINKING_VALUES = new Set(['minimal', 'none', 'low', 'medium', 'high', 'xhigh']);
 const OUTPUT_FORMATS = new Set(['png', 'jpeg', 'webp']);
 const DEFAULT_OUTPUT_FORMAT = 'webp';
-const DEFAULT_MODEL = DEFAULT_IMAGE_MODEL;
 const DEFAULT_OUTPUT_COMPRESSION = 100;
 const DEFAULT_PAGE_SSE_CLIENT_REQUEST_ID_MAX_LENGTH = 128;
 const PAGE_SSE_ENDPOINT = '/api/images';
@@ -83,6 +82,7 @@ const GENERATE_PRESETS = {
 };
 
 loadPrivateAgentEnvFile();
+const DEFAULT_MODEL = resolveConfiguredDefaultImageModel();
 const token = resolveAgentToken();
 const passwordHash = process.env.GPT_IMAGE_APP_PASSWORD_HASH || '';
 const contractCheck = process.env.GPT_IMAGE_AGENT_CONTRACT_CHECK === '1' || process.argv.includes('--contract-check');

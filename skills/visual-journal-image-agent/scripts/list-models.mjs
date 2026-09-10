@@ -10,6 +10,7 @@ import {
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const MAX_TIMEOUT_MS = 120_000;
+const MAX_REDIRECTS = 3;
 
 loadPrivateAgentEnvFile();
 
@@ -76,12 +77,30 @@ function parseArgs(argv) {
 async function fetchModelDirectory(baseUrl, endpoint, headers, timeoutMs) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
-    let response;
+    const initialUrl = new URL(endpoint.replace(/^\/+/, ''), `${baseUrl.replace(/\/$/, '')}/`);
+    let requestUrl = initialUrl;
     try {
-        response = await fetch(new URL(endpoint, `${baseUrl.replace(/\/$/, '')}/`), {
-            headers,
-            signal: controller.signal
-        });
+        let response;
+        for (let redirectCount = 0; ; redirectCount += 1) {
+            response = await fetch(requestUrl, {
+                headers,
+                signal: controller.signal,
+                redirect: 'manual'
+            });
+            if (response.status < 300 || response.status >= 400) break;
+
+            const location = response.headers.get('location');
+            await response.body?.cancel();
+            if (!location) throw new Error(`模型目录请求失败：服务返回了没有 Location 的重定向（状态码 ${response.status}）。`);
+            const redirectedUrl = new URL(location, requestUrl);
+            if (redirectedUrl.origin !== initialUrl.origin) {
+                throw new Error('模型目录请求失败：拒绝跨源重定向，以免向其他站点发送鉴权信息。');
+            }
+            if (redirectCount >= MAX_REDIRECTS) {
+                throw new Error(`模型目录请求失败：重定向次数超过 ${MAX_REDIRECTS} 次。`);
+            }
+            requestUrl = redirectedUrl;
+        }
         let result;
         try {
             result = await response.json();

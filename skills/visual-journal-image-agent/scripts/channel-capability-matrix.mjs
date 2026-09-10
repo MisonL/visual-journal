@@ -1,27 +1,42 @@
 #!/usr/bin/env node
-import { spawn } from 'node:child_process';
-import { closeSync, chmodSync, existsSync, fsyncSync, linkSync, lstatSync, openSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
-import { randomBytes } from 'node:crypto';
-import { basename, dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
+  DEFAULT_ENABLED_CHANNEL_REQUEST_MODES,
+  assertPlainHttpBaseUrlAllowed,
   buildCapabilityMatrix,
   buildChannelEnvConfig,
   buildRedactedChannelEnvPreview,
   createDefaultChannelId,
+  parseCapabilityRequestModes,
   redactKnownSecrets,
   resolveUpstreamApiKey,
   validateChannelApiKey,
   validateChannelId
 } from './lib/channel-capability-matrix.mjs';
 import {
-  DEFAULT_IMAGE_MODEL,
   errorMessage,
   loadPrivateAgentEnvFile,
   normalizeBaseUrl,
   readConfiguredPositiveInteger,
-  readOptionValue
+  readOptionValue,
+  resolveConfiguredDefaultImageModel
 } from './lib/script-utils.mjs';
+import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
+import {
+  closeSync,
+  chmodSync,
+  existsSync,
+  fsyncSync,
+  linkSync,
+  lstatSync,
+  openSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync
+} from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const SCRIPT_DIRECTORY = dirname(fileURLToPath(import.meta.url));
 const PROBE_SCRIPT_PATH = join(SCRIPT_DIRECTORY, 'probe-upstream-image.mjs');
@@ -45,14 +60,22 @@ try {
 
 try {
   const baseUrl = normalizeBaseUrl(
-    options.baseUrl || process.env.GPT_IMAGE_UPSTREAM_BASE_URL || process.env.OPENAI_API_BASE_URL || DEFAULT_UPSTREAM_BASE_URL
+    options.baseUrl ||
+      process.env.GPT_IMAGE_UPSTREAM_BASE_URL ||
+      process.env.OPENAI_API_BASE_URL ||
+      DEFAULT_UPSTREAM_BASE_URL
   );
   const upstream = new URL(baseUrl);
+  assertPlainHttpBaseUrlAllowed(baseUrl, options.allowPlainHttp);
   const apiKey = resolveUpstreamApiKey();
   const apiKeyValidation = validateChannelApiKey(apiKey.value);
   const channelId = options.channelId || createDefaultChannelId(upstream.hostname, options.channelIndex);
   const channelIdValidation = validateChannelId(channelId);
-  if (!channelIdValidation.ok) throw new Error('--channel-id 只能包含字母、数字、点、下划线和连字符，且长度不超过 64。');
+  if (!channelIdValidation.ok)
+    throw new Error('--channel-id 只能包含字母、数字、点、下划线和连字符，且长度不超过 64。');
+  if (options.allowBillable && !apiKeyValidation.ok) {
+    throw new Error('真实能力矩阵需要有效的 GPT_IMAGE_UPSTREAM_API_KEY 或 OPENAI_API_KEY；未发送计费探针。');
+  }
   if (options.writeEnvFile && !apiKeyValidation.ok) {
     throw new Error('生成私有配置需要设置有效的 GPT_IMAGE_UPSTREAM_API_KEY 或 OPENAI_API_KEY。');
   }
@@ -70,7 +93,7 @@ try {
 function parseArgs(argv) {
   const parsed = {
     baseUrl: undefined,
-    model: DEFAULT_IMAGE_MODEL,
+    model: resolveConfiguredDefaultImageModel(),
     responsesModel: undefined,
     prompt: 'channel capability matrix probe',
     size: '1024x1024',
@@ -83,6 +106,9 @@ function parseArgs(argv) {
     writeEnvFile: undefined,
     overwrite: false,
     allowBillable: false,
+    confirmBillable: false,
+    allowPlainHttp: false,
+    enableRequestModes: undefined,
     help: false
   };
 
@@ -102,7 +128,18 @@ function parseArgs(argv) {
     else if (arg === '--write-env-file') parsed.writeEnvFile = readOptionValue(argv, (index += 1), arg);
     else if (arg === '--overwrite') parsed.overwrite = true;
     else if (arg === '--allow-billable') parsed.allowBillable = true;
-    else if (arg === '--help' || arg === '-h') parsed.help = true;
+    else if (arg === '--confirm-billable') parsed.confirmBillable = true;
+    else if (arg === '--allow-plain-http') parsed.allowPlainHttp = true;
+    else if (arg === '--enable-request-modes') {
+      const value = readOptionValue(argv, (index += 1), arg);
+      try {
+        parsed.enableRequestModes = parseCapabilityRequestModes(value, 'enable_request_modes');
+      } catch {
+        throw new Error(
+          '--enable-request-modes 必须包含 images-non-stream、images-sse、responses-non-stream 或 responses-sse。'
+        );
+      }
+    } else if (arg === '--help' || arg === '-h') parsed.help = true;
     else throw new Error('包含未知参数。');
   }
 
@@ -119,6 +156,12 @@ function validateOptions(parsed) {
   if (parsed.writeEnvFile && !parsed.allowBillable) {
     throw new Error('--write-env-file 需要同时使用 --allow-billable。');
   }
+  if (parsed.allowBillable && !parsed.confirmBillable) {
+    throw new Error('--allow-billable 需要先获得用户明确确认，并同时使用 --confirm-billable。');
+  }
+  if (parsed.confirmBillable && !parsed.allowBillable) {
+    throw new Error('--confirm-billable 只能和 --allow-billable 一起使用。');
+  }
   if (parsed.timeoutMs !== undefined) readConfiguredPositiveInteger(parsed.timeoutMs, '--timeout-ms', 30000);
 }
 
@@ -129,6 +172,8 @@ async function runCapabilityMatrix(input) {
   const matrix = buildCapabilityMatrix({
     probeReport,
     allowBillable: options.allowBillable,
+    billableConfirmed: options.confirmBillable,
+    enabledRequestModes: options.enableRequestModes,
     apiKeyValid: input.apiKeyValidation.ok,
     apiKeyError: input.apiKeyValidation.reason,
     redactText
@@ -145,7 +190,8 @@ async function runCapabilityMatrix(input) {
             baseUrl: input.baseUrl,
             requestModes: matrix.configuration.request_modes,
             requestModePriority: matrix.configuration.request_mode_priority,
-            responsesModel: matrix.configuration.responses_model
+            responsesModel: matrix.configuration.responses_model,
+            allowPlainHttp: options.allowPlainHttp
           })
         }
       : {})
@@ -163,9 +209,14 @@ async function runCapabilityMatrix(input) {
         apiKey: input.apiKey.value,
         requestModes: configuration.request_modes,
         requestModePriority: configuration.request_mode_priority,
-        responsesModel: configuration.responses_model
+        responsesModel: configuration.responses_model,
+        allowPlainHttp: options.allowPlainHttp
       });
-      write = { requested: true, attempted: true, ...writePrivateEnvFile(options.writeEnvFile, content, options.overwrite) };
+      write = {
+        requested: true,
+        attempted: true,
+        ...writePrivateEnvFile(options.writeEnvFile, content, options.overwrite)
+      };
     }
   }
 
@@ -194,13 +245,30 @@ async function runCapabilityMatrix(input) {
       modes: matrix.modes
     },
     configuration,
+    onboarding: {
+      test_request_modes: matrix.requested,
+      tested_request_modes: configuration.tested_request_modes,
+      default_enabled_request_modes: [...DEFAULT_ENABLED_CHANNEL_REQUEST_MODES],
+      enabled_request_modes: configuration.enabled_request_modes,
+      request_mode_selection: configuration.request_mode_selection,
+      billable_confirmation_required: true,
+      billable_confirmation_provided: options.confirmBillable,
+      billable_execution_allowed: options.allowBillable
+    },
     write,
     summary: {
       ok: configuration.ready && (!options.writeEnvFile || write.written),
       billable: options.allowBillable,
       request_modes: configuration.request_modes,
+      tested_request_modes: configuration.tested_request_modes,
+      enabled_request_modes: configuration.enabled_request_modes,
       blocking_reasons: configuration.blocking_reasons,
-      next_action: readNextAction({ configuration, write, writeRequested: Boolean(options.writeEnvFile) })
+      next_action: readNextAction({
+        configuration,
+        write,
+        writeRequested: Boolean(options.writeEnvFile),
+        billableConfirmed: options.confirmBillable
+      })
     }
   };
 
@@ -317,7 +385,10 @@ function writePrivateEnvFile(targetPath, content, overwrite) {
       if (!overwrite) return { written: false, reason: 'target_exists' };
     }
 
-    temporaryPath = join(targetDirectory, `.${targetName}.channel-capability-${process.pid}-${randomBytes(8).toString('hex')}.tmp`);
+    temporaryPath = join(
+      targetDirectory,
+      `.${targetName}.channel-capability-${process.pid}-${randomBytes(8).toString('hex')}.tmp`
+    );
     writeFileSync(temporaryPath, content, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
     chmodSync(temporaryPath, 0o600);
     const descriptor = openSync(temporaryPath, 'r');
@@ -351,6 +422,7 @@ function writePrivateEnvFile(targetPath, content, overwrite) {
 }
 
 function readNextAction(input) {
+  if (!input.billableConfirmed) return 'confirm_billable_matrix_with_user';
   if (!input.configuration.ready) return 'inspect_capability_matrix';
   if (input.writeRequested && !input.write.written) return 'resolve_private_config_write';
   if (input.writeRequested) return 'apply_private_config_and_restart_explicitly';
@@ -360,9 +432,12 @@ function readNextAction(input) {
 function printUsage() {
   console.error('用法：channel-capability-matrix.mjs [options]');
   console.error('固定串行验证 Images/Responses 的 JSON 与 SSE 四种请求方式。');
-  console.error('只有 --allow-billable 且至少一个方式返回可消费图片时，才允许写入私有渠道配置。');
+  console.error('首次渠道接入必须先向用户确认；真实测试同时需要 --allow-billable --confirm-billable。');
+  console.error('测试默认只启用 images-non-stream；其他通过方式必须通过 --enable-request-modes 显式启用。');
   console.error(
-    '常用参数：--base-url --model --responses-model --prompt --size --quality --format --output-compression --timeout-ms --channel-index --channel-id --allow-billable --write-env-file --overwrite'
+    '常用参数：--base-url --model --responses-model --prompt --size --quality --format --output-compression --timeout-ms --channel-index --channel-id --allow-billable --confirm-billable --allow-plain-http --enable-request-modes --write-env-file --overwrite'
   );
-  console.error('不会自动写入 .env.local、重启服务或部署。API Key 仅从 GPT_IMAGE_UPSTREAM_API_KEY 或 OPENAI_API_KEY 读取。');
+  console.error(
+    '不会自动写入 .env.local、重启服务或部署。API Key 仅从 GPT_IMAGE_UPSTREAM_API_KEY 或 OPENAI_API_KEY 读取。'
+  );
 }

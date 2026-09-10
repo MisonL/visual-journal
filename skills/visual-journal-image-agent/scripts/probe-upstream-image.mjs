@@ -1,4 +1,16 @@
 #!/usr/bin/env node
+import { readImageDimensions } from './lib/image-dimensions.mjs';
+import { completeScriptTiming, startScriptTiming } from './lib/script-summary.mjs';
+import {
+  assertValidImageSizeForModel,
+  errorMessage,
+  loadPrivateAgentEnvFile,
+  normalizeBaseUrl,
+  normalizeOutputFormat,
+  readConfiguredPositiveInteger,
+  readOptionValue,
+  resolveConfiguredDefaultImageModel
+} from './lib/script-utils.mjs';
 import dns from 'node:dns/promises';
 import { mkdir, writeFile } from 'node:fs/promises';
 import http from 'node:http';
@@ -6,18 +18,6 @@ import https from 'node:https';
 import { isIP } from 'node:net';
 import { dirname } from 'node:path';
 import tls from 'node:tls';
-import {
-  assertValidImageSizeForModel,
-  DEFAULT_IMAGE_MODEL,
-  errorMessage,
-  loadPrivateAgentEnvFile,
-  normalizeBaseUrl,
-  normalizeOutputFormat,
-  readConfiguredPositiveInteger,
-  readOptionValue
-} from './lib/script-utils.mjs';
-import { readImageDimensions } from './lib/image-dimensions.mjs';
-import { completeScriptTiming, startScriptTiming } from './lib/script-summary.mjs';
 
 const HEADER_ALLOWLIST = new Set(['content-type', 'date', 'server', 'cf-ray', 'x-request-id', 'retry-after']);
 const DEFAULT_USER_AGENT = 'visual-journal/probe';
@@ -91,7 +91,10 @@ if (options.help) {
 let baseUrl;
 try {
   baseUrl = normalizeBaseUrl(
-    options.baseUrl || process.env.GPT_IMAGE_UPSTREAM_BASE_URL || process.env.OPENAI_API_BASE_URL || 'https://api.openai.com/v1'
+    options.baseUrl ||
+      process.env.GPT_IMAGE_UPSTREAM_BASE_URL ||
+      process.env.OPENAI_API_BASE_URL ||
+      'https://api.openai.com/v1'
   );
 } catch (error) {
   console.error(errorMessage(error));
@@ -160,7 +163,7 @@ process.exit(report.ok ? 0 : 1);
 function parseArgs(argv) {
   const parsed = {
     baseUrl: undefined,
-    model: DEFAULT_IMAGE_MODEL,
+    model: resolveConfiguredDefaultImageModel(),
     responsesModel: undefined,
     prompt: 'contract probe',
     size: '1024x1024',
@@ -371,7 +374,9 @@ async function probeResponsesMode(requestMode, stream) {
           size: options.size,
           quality: options.quality,
           output_format: normalizeOutputFormat(options.format),
-          ...(readOutputCompression(options) !== undefined ? { output_compression: readOutputCompression(options) } : {})
+          ...(readOutputCompression(options) !== undefined
+            ? { output_compression: readOutputCompression(options) }
+            : {})
         }
       ]
     })
@@ -429,9 +434,7 @@ async function readFirstConsumableFinalImageBytes({ response, json, text, modeKi
   const contentType = response.headers.get('content-type') || '';
   if (contentType.includes('text/event-stream')) return await readFirstConsumableFinalImageBytesFromSse(text);
   if (modeKind === 'images') return await readFirstConsumableImageBytesFromValue(json?.data);
-  const imageCalls = Array.isArray(json?.output)
-    ? json.output.filter(isCompletedResponsesImageCall)
-    : [];
+  const imageCalls = Array.isArray(json?.output) ? json.output.filter(isCompletedResponsesImageCall) : [];
   return await readFirstConsumableImageBytesFromValue(imageCalls);
 }
 
@@ -754,7 +757,13 @@ async function requestWithConnectIp(url, init) {
       },
       (response) => {
         readIncomingMessage(response).then(
-          (body) => resolve(new Response(body, { status: response.statusCode || 599, headers: toResponseHeaders(response.headers) })),
+          (body) =>
+            resolve(
+              new Response(body, {
+                status: response.statusCode || 599,
+                headers: toResponseHeaders(response.headers)
+              })
+            ),
           reject
         );
       }
@@ -962,12 +971,17 @@ function summarizeError(json, text) {
   const error = json?.error;
   if (typeof error === 'object' && error) {
     return {
-      code: typeof error.code === 'string' ? error.code : undefined,
-      type: typeof error.type === 'string' ? error.type : undefined,
-      message: typeof error.message === 'string' ? error.message : undefined
+      code: typeof error.code === 'string' ? redactProbeSecret(error.code) : undefined,
+      type: typeof error.type === 'string' ? redactProbeSecret(error.type) : undefined,
+      message: typeof error.message === 'string' ? redactProbeSecret(error.message) : undefined
     };
   }
-  return text ? { message: text.slice(0, 500) } : undefined;
+  return text ? { message: redactProbeSecret(text.slice(0, 500)) } : undefined;
+}
+
+function redactProbeSecret(value) {
+  if (!apiKey) return value;
+  return value.split(apiKey).join('[redacted]');
 }
 
 function readAllowedHeaders(headers) {
@@ -982,7 +996,8 @@ function readAllowedHeaders(headers) {
 function readOutputCompression(parsed) {
   const outputFormat = normalizeOutputFormat(parsed.format);
   if (outputFormat === 'png') return undefined;
-  const value = parsed.outputCompression === undefined ? String(DEFAULT_OUTPUT_COMPRESSION) : String(parsed.outputCompression);
+  const value =
+    parsed.outputCompression === undefined ? String(DEFAULT_OUTPUT_COMPRESSION) : String(parsed.outputCompression);
   if (!/^\d+$/.test(value)) throw new Error('--output-compression 必须是 0 到 100 之间的整数。');
   const parsedValue = Number(value);
   if (!Number.isInteger(parsedValue) || parsedValue < 0 || parsedValue > 100) {
@@ -1038,5 +1053,7 @@ function printUsage() {
   console.error(
     '常用参数：--base-url --connect-ip --model --responses-model --prompt --size --quality --format --output-compression --timeout-ms --request-mode --save-first-image --allow-billable'
   );
-  console.error('可用请求方式：images-non-stream、images-sse、responses-non-stream、responses-sse；可重复传 --request-mode，或传 all。');
+  console.error(
+    '可用请求方式：images-non-stream、images-sse、responses-non-stream、responses-sse；可重复传 --request-mode，或传 all。'
+  );
 }

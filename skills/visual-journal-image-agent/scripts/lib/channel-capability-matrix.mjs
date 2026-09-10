@@ -1,3 +1,5 @@
+import { normalizeBaseUrl } from './script-utils.mjs';
+
 export const CHANNEL_CAPABILITY_REQUEST_MODES = Object.freeze([
   'images-non-stream',
   'images-sse',
@@ -11,6 +13,19 @@ export const DEFAULT_CHANNEL_CAPABILITY_REQUEST_MODE_PRIORITY = Object.freeze([
   'responses-non-stream',
   'responses-sse'
 ]);
+
+export const DEFAULT_ENABLED_CHANNEL_REQUEST_MODES = Object.freeze(['images-non-stream']);
+
+const CHANNEL_CAPABILITY_REQUEST_MODE_ALIASES = Object.freeze({
+  'images-api': 'images-non-stream',
+  'images-api-json': 'images-non-stream',
+  'images-json': 'images-non-stream',
+  'images-nonstream': 'images-non-stream',
+  'responses-api': 'responses-non-stream',
+  'responses-api-json': 'responses-non-stream',
+  'responses-json': 'responses-non-stream',
+  'responses-nonstream': 'responses-non-stream'
+});
 
 const CONTROL_CHARACTER_PATTERN = /[\u0000\r\n]/;
 const SAFE_UNQUOTED_ENV_VALUE_PATTERN = /^[A-Za-z0-9._/:,@%+=-]+$/;
@@ -50,11 +65,35 @@ export function createDefaultChannelId(hostname, channelIndex) {
   return `channel-${channelIndex}-${hostPart || 'upstream'}`;
 }
 
+export function parseCapabilityRequestModes(value, fieldName = 'request_modes') {
+  const values = Array.isArray(value) ? value : String(value ?? '').split(/[\s,]+/);
+  const normalized = [];
+  for (const valuePart of values) {
+    const valueText = String(valuePart).trim().toLowerCase().replace(/_/g, '-');
+    if (!valueText) continue;
+    if (valueText === 'all') {
+      for (const requestMode of CHANNEL_CAPABILITY_REQUEST_MODES) {
+        if (!normalized.includes(requestMode)) normalized.push(requestMode);
+      }
+      continue;
+    }
+    const requestMode = CHANNEL_CAPABILITY_REQUEST_MODE_ALIASES[valueText] || valueText;
+    if (!CHANNEL_CAPABILITY_REQUEST_MODES.includes(requestMode)) {
+      throw new Error(`invalid_${fieldName}`);
+    }
+    if (!normalized.includes(requestMode)) normalized.push(requestMode);
+  }
+  if (normalized.length === 0) throw new Error(`missing_${fieldName}`);
+  return normalized;
+}
+
 export function buildCapabilityMatrix(input) {
   const report = isRecord(input.probeReport) ? input.probeReport : {};
   const requestModes = isRecord(report.request_modes) ? report.request_modes : {};
   const modeReports = isRecord(requestModes.modes) ? requestModes.modes : {};
   const requested = Array.isArray(requestModes.requested) ? requestModes.requested : [];
+  const enabledRequestModes = normalizeRequestModes(input.enabledRequestModes || DEFAULT_ENABLED_CHANNEL_REQUEST_MODES);
+  const requestModeSelection = Array.isArray(input.enabledRequestModes) ? 'explicit' : 'default';
   const modes = {};
   const passed = [];
   const failed = [];
@@ -73,17 +112,24 @@ export function buildCapabilityMatrix(input) {
   const coverageComplete =
     CHANNEL_CAPABILITY_REQUEST_MODES.every((requestMode) => requested.includes(requestMode)) &&
     CHANNEL_CAPABILITY_REQUEST_MODES.every((requestMode) => isRecord(modeReports[requestMode]));
-  const responsesModes = passed.filter((requestMode) => requestMode.startsWith('responses-'));
-  const responsesModel = readResponsesModel(modeReports, responsesModes);
-  const imageBackend = resolveDefaultImageBackend(passed);
+  const passedSet = new Set(passed);
+  const enabledNotPassed = enabledRequestModes.filter((requestMode) => !passedSet.has(requestMode));
+  const enabledPassed = enabledRequestModes.filter((requestMode) => passedSet.has(requestMode));
+  const testedResponsesModes = passed.filter((requestMode) => requestMode.startsWith('responses-'));
+  const enabledResponsesModes = enabledRequestModes.filter((requestMode) => requestMode.startsWith('responses-'));
+  const responsesModel = readResponsesModel(modeReports, testedResponsesModes);
+  const imageBackend = resolveDefaultImageBackend(enabledRequestModes);
   const blockingReasons = [];
 
   if (!input.allowBillable) blockingReasons.push('billable_verification_required');
+  if (input.allowBillable && input.billableConfirmed !== true) blockingReasons.push('billable_confirmation_required');
   if (!models.ok) blockingReasons.push('models_preflight_failed');
   if (!coverageComplete) blockingReasons.push('incomplete_request_mode_matrix');
   if (!input.apiKeyValid) blockingReasons.push(input.apiKeyError || 'missing_api_key');
   if (passed.length === 0) blockingReasons.push('no_consumable_image_mode');
-  if (responsesModes.length > 0 && !responsesModel) blockingReasons.push('missing_responses_model');
+  if (enabledNotPassed.length > 0) blockingReasons.push('enabled_request_modes_not_passed');
+  if (passed.length > 0 && enabledPassed.length === 0) blockingReasons.push('no_enabled_request_mode');
+  if (enabledResponsesModes.length > 0 && !responsesModel) blockingReasons.push('missing_responses_model');
 
   return {
     requested: [...CHANNEL_CAPABILITY_REQUEST_MODES],
@@ -101,11 +147,17 @@ export function buildCapabilityMatrix(input) {
     configuration: {
       ready: blockingReasons.length === 0,
       blocking_reasons: blockingReasons,
-      request_modes: passed,
-      request_mode_priority: orderRequestModesByDefaultPriority(passed),
+      request_modes: enabledRequestModes,
+      tested_request_modes: passed,
+      enabled_request_modes: enabledRequestModes,
+      default_enabled_request_modes: [...DEFAULT_ENABLED_CHANNEL_REQUEST_MODES],
+      request_mode_selection: requestModeSelection,
+      request_mode_priority: orderRequestModesByDefaultPriority(enabledRequestModes),
+      tested_request_mode_priority: orderRequestModesByDefaultPriority(passed),
       ...(imageBackend ? { image_backend: imageBackend, streaming_strategy: 'auto' } : {}),
-      responses_backend_required: responsesModes.length > 0,
-      responses_model: responsesModel || undefined
+      responses_backend_required: enabledResponsesModes.length > 0,
+      responses_model: enabledResponsesModes.length > 0 ? responsesModel || undefined : undefined,
+      tested_responses_model: responsesModel || undefined
     }
   };
 }
@@ -113,14 +165,17 @@ export function buildCapabilityMatrix(input) {
 export function buildChannelEnvConfig(input) {
   const channelIndex = readPositiveChannelIndex(input.channelIndex);
   const channelId = readRequiredEnvValue(input.channelId, 'channel_id');
-  const baseUrl = readRequiredEnvValue(input.baseUrl, 'base_url');
+  assertValidChannelId(channelId);
+  const baseUrl = normalizeBaseUrl(readRequiredEnvValue(input.baseUrl, 'base_url'));
   const apiKey = readRequiredEnvValue(input.apiKey, 'api_key');
+  assertValidChannelApiKey(apiKey);
   const requestModes = normalizeRequestModes(input.requestModes);
   const requestModePriority = normalizeRequestModes(input.requestModePriority || requestModes);
+  assertRequestModePrioritySubset(requestModePriority, requestModes);
   const responsesModel = readNonEmptyString(input.responsesModel);
   const hasResponsesMode = requestModes.some((requestMode) => requestMode.startsWith('responses-'));
   const imageBackend = resolveDefaultImageBackend(requestModes);
-  const plainHttpAllowlistValue = resolvePlainHttpAllowlistValue(baseUrl);
+  const plainHttpAllowlistValue = resolvePlainHttpAllowlistValue(baseUrl, input.allowPlainHttp);
 
   if (hasResponsesMode && !responsesModel) {
     throw new Error('missing_responses_model');
@@ -157,12 +212,15 @@ export function buildRedactedChannelEnvPreview(input) {
   const requestModes = normalizeRequestModes(input.requestModes);
   const requestModePriority = normalizeRequestModes(input.requestModePriority || requestModes);
   const imageBackend = resolveDefaultImageBackend(requestModes);
-  const baseUrl = readRequiredEnvValue(input.baseUrl, 'base_url');
-  const plainHttpAllowlistValue = resolvePlainHttpAllowlistValue(baseUrl);
+  const channelId = readRequiredEnvValue(input.channelId, 'channel_id');
+  assertValidChannelId(channelId);
+  assertRequestModePrioritySubset(requestModePriority, requestModes);
+  const baseUrl = normalizeBaseUrl(readRequiredEnvValue(input.baseUrl, 'base_url'));
+  const plainHttpAllowlistValue = resolvePlainHttpAllowlistValue(baseUrl, input.allowPlainHttp);
   if (!imageBackend) throw new Error('missing_image_backend');
   const prefix = `OPENAI_CHANNEL_${channelIndex}`;
   const lines = [
-    `${prefix}_ID=${serializeEnvValue(readRequiredEnvValue(input.channelId, 'channel_id'))}`,
+    `${prefix}_ID=${serializeEnvValue(channelId)}`,
     `${prefix}_BASE_URL=${serializeEnvValue(baseUrl)}`,
     `${prefix}_API_KEYS=[redacted]`,
     `${prefix}_REQUEST_MODES=${serializeEnvValue(requestModes.join(','))}`,
@@ -177,7 +235,9 @@ export function buildRedactedChannelEnvPreview(input) {
 
   if (requestModes.some((requestMode) => requestMode.startsWith('responses-'))) {
     lines.push('ENABLE_RESPONSES_IMAGE_BACKEND=true');
-    lines.push(`OPENAI_RESPONSES_API_MODEL=${serializeEnvValue(readRequiredEnvValue(input.responsesModel, 'responses_model'))}`);
+    lines.push(
+      `OPENAI_RESPONSES_API_MODEL=${serializeEnvValue(readRequiredEnvValue(input.responsesModel, 'responses_model'))}`
+    );
   }
 
   return lines;
@@ -258,7 +318,16 @@ function resolveDefaultImageBackend(requestModes) {
   return undefined;
 }
 
-function resolvePlainHttpAllowlistValue(baseUrl) {
+export function assertPlainHttpBaseUrlAllowed(baseUrl, allowPlainHttp = false) {
+  const parsed = new URL(baseUrl);
+  if (parsed.protocol !== 'http:' || isLoopbackHostname(parsed.hostname)) return;
+  if (allowPlainHttp !== true) {
+    throw new Error('远程明文 HTTP 上游默认被拒绝；确认目标可信后显式添加 --allow-plain-http。');
+  }
+}
+
+function resolvePlainHttpAllowlistValue(baseUrl, allowPlainHttp) {
+  assertPlainHttpBaseUrlAllowed(baseUrl, allowPlainHttp);
   const parsed = new URL(baseUrl);
   if (parsed.protocol !== 'http:' || isLoopbackHostname(parsed.hostname)) return undefined;
   return baseUrl;
@@ -279,6 +348,27 @@ function normalizeRequestModes(value) {
   const normalized = CHANNEL_CAPABILITY_REQUEST_MODES.filter((requestMode) => modes.includes(requestMode));
   if (normalized.length === 0) throw new Error('missing_request_modes');
   return normalized;
+}
+
+function assertValidChannelId(value) {
+  if (!validateChannelId(value).ok) {
+    throw new Error('channel_id 只能包含字母、数字、点、下划线和连字符，且长度不超过 64。');
+  }
+}
+
+function assertValidChannelApiKey(value) {
+  const validation = validateChannelApiKey(value);
+  if (!validation.ok) {
+    throw new Error(`api_key 无效：${validation.reason}。`);
+  }
+}
+
+function assertRequestModePrioritySubset(priority, requestModes) {
+  const allowed = new Set(requestModes);
+  const unsupported = priority.filter((requestMode) => !allowed.has(requestMode));
+  if (unsupported.length > 0) {
+    throw new Error(`request_mode_priority 包含未启用的请求方式：${unsupported.join(', ')}。`);
+  }
 }
 
 function readPositiveChannelIndex(value) {

@@ -95,6 +95,11 @@ export function resolveCapabilitiesDefaultImageModel(capabilities, fallback = DE
     return typeof value === 'string' && /^[^\s]{1,200}$/.test(value.trim()) ? value.trim() : fallback;
 }
 
+export function resolveConfiguredDefaultImageModel(env = process.env, fallback = DEFAULT_IMAGE_MODEL) {
+    const value = env.OPENAI_IMAGE_MODEL;
+    return typeof value === 'string' && /^[^\s]{1,200}$/.test(value.trim()) ? value.trim() : fallback;
+}
+
 export function validateAgentGenerateRequestAgainstCapabilities(body, capabilities) {
     assertNumberWithinCapabilities(
         body.n,

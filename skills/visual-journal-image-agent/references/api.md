@@ -29,7 +29,7 @@ Agent API 是给自动化客户端使用的机器接口，不是自治 Agent 平
 - `scripts/diagnose-request.mjs`：按页面 `clientRequestId` 只读查询结果反馈和脱敏日志诊断摘要，也可按 Agent `request_id` 或 `idempotency_key` 查询 Agent 状态请求诊断，支持 `--base-url` 固定目标服务。
 - `scripts/diagnose-channel-health.mjs`：通过 capabilities 声明的 Agent 端点读取当前服务进程的渠道健康快照，支持 `--base-url` 和 `--output`。
 - `scripts/probe-upstream-image.mjs`：上游图片接口连通性探针。
-- `scripts/channel-capability-matrix.mjs`：固定串行验证四种上游图片请求方式，并在真实验证通过后生成私有渠道 env 配置。
+- `scripts/channel-capability-matrix.mjs`：首次接入渠道时固定串行验证四种上游图片请求方式；用户明确确认后才允许真实矩阵，远程非 loopback HTTP 还必须显式传 `--allow-plain-http`，默认只启用通过验证的 `images-non-stream`，其他方式需显式选择后再生成私有渠道 env 配置。
 
 生成、编辑和批量脚本默认只做预演（dry-run），不触发真实生图或编辑。预演输出的 `verification_scope.mode=local_planning_only` 表示只完成本地请求构造、参数归一化和静态路由规划；它不会读取远端能力声明，不会验证远端鉴权、渠道容量或清单写入。generate 可添加 `--check-remote` 做只读远端检查，输出 `verification_scope.mode=remote_contract_and_local_planning`，仅访问 `/api/agent/capabilities` 和 `/api/runtime-capabilities`，不会发送真实生图请求。必须显式添加 `--allow-billable` 才会调用真实端点。generate 默认提交到 `/api/agent/image-requests` 服务端编排入口；`--agent`、`--job`、`--page-sse` 才会显式改用 `/api/agent/images/generate`、`/api/agent/jobs/images/generate` 或页面端 `/api/images` SSE。
 上游探针默认只检查 DNS、TLS 和 `/models`，必须显式添加 `--allow-billable` 才会调用上游 `/images/generations`。
@@ -196,12 +196,18 @@ node "<skill-root>/scripts/batch-images.mjs" --allow-billable --input tasks.json
 ## 渠道能力矩阵和私有配置
 
 ```text
-node "<skill-root>/scripts/channel-capability-matrix.mjs" --base-url https://upstream.example.com/v1 --responses-model gpt-5.4 --allow-billable --write-env-file /private/path/channel.env
+node "<skill-root>/scripts/channel-capability-matrix.mjs" --base-url https://upstream.example.com/v1 --responses-model gpt-5.4 --allow-billable --confirm-billable --write-env-file /private/path/channel.env
 ```
 
-该脚本固定串行调用 `images-non-stream`、`images-sse`、`responses-non-stream`、`responses-sse`，不会把未测、失败、pending/poll 或探针无法确认安全下载的远程 URL-only 结果写入渠道白名单。`--write-env-file` 必须与 `--allow-billable` 一起使用；写入还要求 `/models` 成功、四种模式都有报告、至少一个模式返回本服务可消费的最终图片、API Key 有效，且 Responses 模式有可用顶层模型。任何条件不满足时只输出脱敏矩阵报告，不创建目标文件。
+首次接入时应先完成非计费发现并向用户说明将进行最多四次真实图片请求、可能产生上游费用和不会自动部署，得到明确同意后再运行该命令。真实矩阵必须同时传 `--allow-billable --confirm-billable`；缺少任一参数都不会发起矩阵图片请求。脚本固定串行调用 `images-non-stream`、`images-sse`、`responses-non-stream`、`responses-sse`，不会把未测、失败、pending/poll 或探针无法确认安全下载的远程 URL-only 结果记为通过。
 
-写入的独立私有 env 配置包含 `OPENAI_CHANNEL_N_*`、实测通过的模式和优先级、`IMAGE_GENERATION_BACKEND`、`IMAGE_STREAMING_STRATEGY=auto`，以及需要时的 `ENABLE_RESPONSES_IMAGE_BACKEND` 和 `OPENAI_RESPONSES_API_MODEL`。只要至少一个 Images API 模式通过，默认后端为 `images-api`；只有 Responses 模式通过时，默认后端为 `responses-image-generation`，因此普通服务请求也会选择实际可用的协议。远程明文 HTTP 上游会额外写入精确的 `OPENAI_ALLOWED_PLAIN_HTTP_API_BASE_URLS`，以满足服务端对非 loopback HTTP 的安全门禁。目标文件使用原子写入和权限 `0600`，默认拒绝覆盖或符号链接；标准输出只提供脱敏 `configuration.env_preview`。脚本不会合并或自动写入 `.env.local`，不会重启服务或部署。
+`tested_request_modes` 表示本次真实通过的方式，`enabled_request_modes` 表示准备写入 `OPENAI_CHANNEL_N_REQUEST_MODES` 的方式。默认启用列表只有 `images-non-stream`；需要启用其他已通过方式时传 `--enable-request-modes <逗号或空格分隔列表>`，例如 `--enable-request-modes images-non-stream,images-sse`。启用列表中的每个方式都必须出现在 `tested_request_modes` 中；如果默认方式未通过，脚本不会静默切换到 Responses，必须显式选择已通过方式。
+
+机器输出的 `onboarding.test_request_modes` 是固定的四种测试计划，`onboarding.tested_request_modes` 是本次实际通过的方式，`onboarding.enabled_request_modes` 是准备写入配置的白名单；三者故意分开，避免把“计划测试”或“测试通过”误当成“自动启用”。
+
+`--write-env-file` 必须与 `--allow-billable --confirm-billable` 一起使用；写入还要求 `/models` 成功、四种模式都有报告、至少一个启用方式返回本服务可消费的最终图片、API Key 有效，且启用 Responses 时有可用顶层模型。任何条件不满足时只输出脱敏矩阵报告，不创建目标文件。
+
+写入的独立私有 env 配置包含 `OPENAI_CHANNEL_N_*`、显式启用的模式和优先级、`IMAGE_GENERATION_BACKEND`、`IMAGE_STREAMING_STRATEGY=auto`，以及仅在启用 Responses 时的 `ENABLE_RESPONSES_IMAGE_BACKEND` 和 `OPENAI_RESPONSES_API_MODEL`。默认启用 `images-non-stream` 时后端为 `images-api`；只有管理员显式启用 Responses 且没有 Images 模式时，后端才为 `responses-image-generation`。远程非 loopback HTTP 必须在命令中显式传 `--allow-plain-http`，脚本才会额外写入精确的 `OPENAI_ALLOWED_PLAIN_HTTP_API_BASE_URLS`；未传时在任何探针前拒绝，loopback HTTP 不需要该参数。目标文件使用原子写入和权限 `0600`，默认拒绝覆盖或符号链接；标准输出只提供脱敏 `configuration.env_preview`。脚本不会合并或自动写入 `.env.local`，不会重启服务或部署。
 
 ## 能力查询
 
@@ -251,7 +257,7 @@ GET /api/agent/capabilities
 - 每个 `upstream_request_headers.channels[]` 还包含按渠道脱敏的 `constraints`，声明生成/编辑数量、按 backend 的数量与 `partial_images` 范围、编辑上传数量和大小、`gpt-image-2` 背景与尺寸策略；存在已初始化路由健康状态时提供 `healthy_request_modes`，表示当前至少有一个凭证健康的 request mode。数量范围可能带 `allowedValues`，表示不连续的离散可用值，不能按 min/max 中间的整数扩展。
 - `upstream_request_headers.channels`：每个服务端渠道的脱敏请求头摘要，包含该渠道有效 `request_modes` 和按白名单过滤后的 `request_mode_priority`。该字段不包含 API key、Authorization 值、Matsca app secret 值或任意 header value。
 - `upstream_request_headers.channels[].upstream_proxy`：该渠道的有效上游代理摘要。`OPENAI_CHANNEL_N_PROXY_URL` 优先于 `OPENAI_UPSTREAM_PROXY_URL`；摘要只返回 `configured` 和 `protocol`，不返回代理地址或端口。
-- `request_mode_controls`：管理员 request mode 白名单和优先级控制面，声明 `OPENAI_UPSTREAM_REQUEST_MODES`、`OPENAI_CHANNEL_N_REQUEST_MODES`、`OPENAI_UPSTREAM_REQUEST_MODE_PRIORITY`、`OPENAI_CHANNEL_N_REQUEST_MODE_PRIORITY`、默认低费用优先顺序、真实冒烟验证门禁和 `agent_client_policy=diagnostics_only`；Agent 客户端只能用于解释执行结果，不应据此自行选择上游请求方式。接入新渠道时，先用 `scripts/probe-upstream-image.mjs` 验证 `/models` 和 `/images/generations`，再用 `npm run smoke:image-upstream-real -- --allow-billable` 跑 `original-images-json`、`sub2api-images-sse`、`sub2api-responses-json`、`gpt2image-responses-sse` 等真实冒烟用例；也可用 `--case images-json`、`--case images-sse`、`--case responses-json`、`--case responses-sse` 按 request mode 筛选。脚本输出的 `request_modes.passed` 和顶层 `suggested_channel_config` 是写入 `OPENAI_CHANNEL_N_REQUEST_MODES` 的候选值；未通过、未实测、探针无法确认安全下载的远程 URL-only 或只返回 pending/poll_url 的 mode 不应写入。服务端会在 HTTPS、公共 DNS 且未配置代理时安全下载跨域图片 URL；只有内联 `b64_json`、Responses `result`、同源 URL 或已按该安全策略验证的跨域 URL 才算可消费。如果 `/v1/responses` 返回 `403 Image generation is not enabled for this group`，或 HTTP 200 但只返回文本 output、没有 `image_generation_call.result`/`url`，就把对应 `responses-*` mode 从白名单里删掉，只保留通过的模式。需要覆盖默认排序时，再把通过的 mode 按期望顺序写入 `OPENAI_CHANNEL_N_REQUEST_MODE_PRIORITY`。
+- `request_mode_controls`：管理员 request mode 白名单和优先级控制面，声明 `OPENAI_UPSTREAM_REQUEST_MODES`、`OPENAI_CHANNEL_N_REQUEST_MODES`、`OPENAI_UPSTREAM_REQUEST_MODE_PRIORITY`、`OPENAI_CHANNEL_N_REQUEST_MODE_PRIORITY`、默认低费用优先顺序、真实冒烟验证门禁和 `agent_client_policy=diagnostics_only`；Agent 客户端只能用于解释执行结果，不应据此自行选择上游请求方式。首次接入新渠道时，先用 `scripts/probe-upstream-image.mjs` 做非计费 `/models` 检查并取得用户明确授权，再用 `scripts/channel-capability-matrix.mjs --allow-billable --confirm-billable` 固定验证四种方式；远程非 loopback HTTP 还必须传 `--allow-plain-http`。`npm run smoke:image-upstream-real -- --allow-billable` 仅用于已有配置的定向诊断，不能替代首次接入矩阵；它可按 `--case images-json`、`--case images-sse`、`--case responses-json`、`--case responses-sse` 筛选场景。矩阵输出的 `tested_request_modes` 是实测结果，`enabled_request_modes` 才是准备写入 `OPENAI_CHANNEL_N_REQUEST_MODES` 的列表；默认只启用 `images-non-stream`，其他模式必须显式选择。未通过、未实测、探针无法确认安全下载的远程 URL-only 或只返回 pending/poll_url 的 mode 不应写入。服务端会在 HTTPS、公共 DNS 且未配置代理时安全下载跨域图片 URL；只有内联 `b64_json`、Responses `result`、同源 URL 或已按该安全策略验证的跨域 URL 才算可消费。如果 `/v1/responses` 返回 `403 Image generation is not enabled for this group`，或 HTTP 200 但只返回文本 output、没有 `image_generation_call.result`/`url`，就把对应 `responses-*` mode 从白名单里删掉，只保留通过的模式。需要覆盖默认排序时，再把通过的 mode 按期望顺序写入 `OPENAI_CHANNEL_N_REQUEST_MODE_PRIORITY`。
 - `providerManifests[].manifest.executionSupport`：`implemented` 表示当前执行器可按现有 Images/Responses 路径执行；`declared_only` 表示 manifest 声明了 async-poll，但当前执行器不会自动轮询 provider `poll` 配置。pending/poll_url 只能作为诊断线索，不是可写入 request mode 白名单的通过证明。
 - `routing_rules.high_resolution_edit`：`edit` 且最大边大于 `2048` 时默认优先使用页面端 `/api/images` SSE，页面流式有问题时显式回退。
 - `routing_rules.complex_ui_batch`：复杂 UI 批量出图推荐使用页面端 `/api/images` SSE。
@@ -275,7 +281,7 @@ GET /api/agent/models?probe=true
 
 模型目录端点的声明读取与主动探测使用不同强度的保护：不论是否配置 Agent token，声明读取都不触发出站请求且只返回脱敏渠道信息；配置 Bearer token 时机器客户端使用 `Authorization: Bearer <token>`，仅配置页面访问码时使用 `X-App-Password-Hash`，已登录工作台也可以使用有效的 `gptImageAccess` cookie（即使同时配置了 Agent token）。`probe=true` 必须通过 Agent 或已验证页面会话鉴权，才会由服务端向已配置渠道请求 `/models`；它可能产生出站网络请求但不触发图片生成或计费。
 
-响应中的 `known_models[]` 是模型目录条目，`channels[]` 是按渠道分组的探测结果。`channels[].declared_models` 和 `channels[].model_allowlist_configured` 表示管理员配置的渠道白名单，`channels[].models` 表示当前声明或探测后可用的模型；白名单渠道探测为空时也不会恢复通用模型选项。只有 `status=verified_usable` 的条目表示该次探测确认渠道返回了模型；`status=declared` 只表示项目或配置声明，不能当作真实可用性证明。`size_policy` 为 `legacy_allowlist` 时使用旧版四种尺寸白名单；`provider_defined` 时使用 `auto` 或正整数 `WIDTHxHEIGHT` 语法，最终能力仍由渠道 provider manifest 和上游响应决定。
+响应中的 `known_models[]` 是模型目录条目，`channels[]` 是按渠道分组的探测结果。`channels[].declared_models` 和 `channels[].model_allowlist_configured` 表示管理员配置的渠道白名单，`channels[].model_allowlist_state` 进一步区分 `unrestricted`、`restricted` 和同一渠道下凭证混用的 `mixed` 状态；`channels[].models` 表示当前声明或探测后可用的模型。混合状态不能被当作完整白名单，否则会错误隐藏未限制凭证可用的通用模型。白名单渠道探测为空时也不会恢复通用模型选项。只有 `status=verified_usable` 的条目表示该次探测确认渠道返回了模型；`status=declared` 只表示项目或配置声明，不能当作真实可用性证明。`size_policy` 为 `legacy_allowlist` 时使用旧版四种尺寸白名单；`provider_defined` 时使用 `auto` 或正整数 `WIDTHxHEIGHT` 语法，最终能力仍由渠道 provider manifest 和上游响应决定。
 
 新增探针、诊断或健康摘要时，先把机器契约放进 capabilities、OpenAPI 或明确的 Agent 只读端点，再让脚本消费这些字段；不要让脚本自己拼 page API、runtime API 和 Agent API 的边界逻辑。
 

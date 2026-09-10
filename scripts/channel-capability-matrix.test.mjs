@@ -1,3 +1,8 @@
+import {
+    buildChannelEnvConfig,
+    buildRedactedChannelEnvPreview
+} from '../skills/visual-journal-image-agent/scripts/lib/channel-capability-matrix.mjs';
+import { FIXTURE_IMAGE_BASE64, createFixtureServer } from './local-image-upstream-fixture.mjs';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -6,15 +11,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
-
-import {
-    FIXTURE_IMAGE_BASE64,
-    createFixtureServer
-} from './local-image-upstream-fixture.mjs';
-import {
-    buildChannelEnvConfig,
-    buildRedactedChannelEnvPreview
-} from '../skills/visual-journal-image-agent/scripts/lib/channel-capability-matrix.mjs';
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 const matrixScript = join(repoRoot, 'skills/visual-journal-image-agent/scripts/channel-capability-matrix.mjs');
@@ -34,6 +30,7 @@ describe('channel capability matrix Skill script', () => {
                     '--responses-model',
                     testResponsesModel,
                     '--allow-billable',
+                    '--confirm-billable',
                     '--write-env-file',
                     outputPath,
                     '--channel-id',
@@ -57,29 +54,48 @@ describe('channel capability matrix Skill script', () => {
             ]);
             assert.deepEqual(report.matrix.failed, []);
             assert.equal(report.configuration.ready, true);
+            assert.deepEqual(report.configuration.tested_request_modes, [
+                'images-non-stream',
+                'images-sse',
+                'responses-non-stream',
+                'responses-sse'
+            ]);
+            assert.deepEqual(report.configuration.enabled_request_modes, ['images-non-stream']);
+            assert.deepEqual(report.onboarding.test_request_modes, [
+                'images-non-stream',
+                'images-sse',
+                'responses-non-stream',
+                'responses-sse'
+            ]);
+            assert.deepEqual(report.onboarding.tested_request_modes, [
+                'images-non-stream',
+                'images-sse',
+                'responses-non-stream',
+                'responses-sse'
+            ]);
+            assert.deepEqual(report.onboarding.enabled_request_modes, ['images-non-stream']);
+            assert.equal(report.configuration.request_mode_selection, 'default');
             assert.equal(report.write.written, true);
             assert.deepEqual(report.configuration.env_preview, [
                 'OPENAI_CHANNEL_1_ID=fixture-upstream',
                 `OPENAI_CHANNEL_1_BASE_URL=${fixture.baseUrl}/v1`,
                 'OPENAI_CHANNEL_1_API_KEYS=[redacted]',
-                'OPENAI_CHANNEL_1_REQUEST_MODES=images-non-stream,images-sse,responses-non-stream,responses-sse',
-                'OPENAI_CHANNEL_1_REQUEST_MODE_PRIORITY=images-non-stream,images-sse,responses-non-stream,responses-sse',
+                'OPENAI_CHANNEL_1_REQUEST_MODES=images-non-stream',
+                'OPENAI_CHANNEL_1_REQUEST_MODE_PRIORITY=images-non-stream',
                 'IMAGE_GENERATION_BACKEND=images-api',
-                'IMAGE_STREAMING_STRATEGY=auto',
-                'ENABLE_RESPONSES_IMAGE_BACKEND=true',
-                `OPENAI_RESPONSES_API_MODEL=${testResponsesModel}`
+                'IMAGE_STREAMING_STRATEGY=auto'
             ]);
 
             const content = readFileSync(outputPath, 'utf8');
             assert.match(content, /OPENAI_CHANNEL_1_ID=fixture-upstream/);
             assert.match(content, new RegExp(`OPENAI_CHANNEL_1_BASE_URL=${escapeRegExp(`${fixture.baseUrl}/v1`)}`));
             assert.match(content, new RegExp(`OPENAI_CHANNEL_1_API_KEYS=${testApiKey}`));
-            assert.match(content, /OPENAI_CHANNEL_1_REQUEST_MODES=images-non-stream,images-sse,responses-non-stream,responses-sse/);
-            assert.match(content, /OPENAI_CHANNEL_1_REQUEST_MODE_PRIORITY=images-non-stream,images-sse,responses-non-stream,responses-sse/);
+            assert.match(content, /OPENAI_CHANNEL_1_REQUEST_MODES=images-non-stream/);
+            assert.match(content, /OPENAI_CHANNEL_1_REQUEST_MODE_PRIORITY=images-non-stream/);
             assert.match(content, /IMAGE_GENERATION_BACKEND=images-api/);
             assert.match(content, /IMAGE_STREAMING_STRATEGY=auto/);
-            assert.match(content, /ENABLE_RESPONSES_IMAGE_BACKEND=true/);
-            assert.match(content, new RegExp(`OPENAI_RESPONSES_API_MODEL=${testResponsesModel}`));
+            assert.doesNotMatch(content, /ENABLE_RESPONSES_IMAGE_BACKEND/);
+            assert.doesNotMatch(content, /OPENAI_RESPONSES_API_MODEL/);
             assert.equal(statSync(outputPath).mode & 0o777, 0o600);
 
             const resolvedConfig = await resolveGeneratedConfig(outputPath);
@@ -89,18 +105,8 @@ describe('channel capability matrix Skill script', () => {
                 channel: {
                     id: 'fixture-upstream',
                     base_url: `${fixture.baseUrl}/v1`,
-                    request_modes: [
-                        'images-non-stream',
-                        'images-sse',
-                        'responses-non-stream',
-                        'responses-sse'
-                    ],
-                    request_mode_priority: [
-                        'images-non-stream',
-                        'images-sse',
-                        'responses-non-stream',
-                        'responses-sse'
-                    ]
+                    request_modes: ['images-non-stream'],
+                    request_mode_priority: ['images-non-stream']
                 },
                 image_backend: 'images-api',
                 streaming_strategy: 'auto'
@@ -113,6 +119,7 @@ describe('channel capability matrix Skill script', () => {
                     '--responses-model',
                     testResponsesModel,
                     '--allow-billable',
+                    '--confirm-billable',
                     '--write-env-file',
                     outputPath,
                     '--channel-id',
@@ -133,6 +140,7 @@ describe('channel capability matrix Skill script', () => {
                     '--responses-model',
                     testResponsesModel,
                     '--allow-billable',
+                    '--confirm-billable',
                     '--write-env-file',
                     outputPath,
                     '--channel-id',
@@ -191,6 +199,7 @@ describe('channel capability matrix Skill script', () => {
                     '--responses-model',
                     testResponsesModel,
                     '--allow-billable',
+                    '--confirm-billable',
                     '--write-env-file',
                     outputPath,
                     '--channel-index',
@@ -209,6 +218,14 @@ describe('channel capability matrix Skill script', () => {
             assert.deepEqual(report.matrix.failed, ['images-sse', 'responses-non-stream', 'responses-sse']);
             assert.equal(report.matrix.coverage_complete, true);
             assert.equal(report.configuration.ready, true);
+            assert.deepEqual(report.onboarding.test_request_modes, [
+                'images-non-stream',
+                'images-sse',
+                'responses-non-stream',
+                'responses-sse'
+            ]);
+            assert.deepEqual(report.onboarding.tested_request_modes, ['images-non-stream']);
+            assert.deepEqual(report.onboarding.enabled_request_modes, ['images-non-stream']);
             assert.equal(report.write.written, true);
             assert.deepEqual(calls, [
                 { method: 'GET', path: '/v1/models' },
@@ -271,6 +288,42 @@ describe('channel capability matrix Skill script', () => {
         const tempRoot = mkdtempSync(join(tmpdir(), 'channel-capability-matrix-responses-only-'));
         const outputPath = join(tempRoot, 'responses-only.env');
         try {
+            const defaultResult = await runMatrix(
+                [
+                    '--base-url',
+                    `${fixture.baseUrl}/v1`,
+                    '--responses-model',
+                    testResponsesModel,
+                    '--allow-billable',
+                    '--confirm-billable',
+                    '--write-env-file',
+                    outputPath,
+                    '--channel-index',
+                    '3',
+                    '--channel-id',
+                    'responses-only',
+                    '--timeout-ms',
+                    '5000'
+                ],
+                { GPT_IMAGE_UPSTREAM_API_KEY: testApiKey }
+            );
+            assert.equal(defaultResult.status, 1);
+            const defaultReport = JSON.parse(defaultResult.stdout);
+            assert.equal(defaultReport.configuration.request_mode_selection, 'default');
+            assert.deepEqual(defaultReport.configuration.enabled_request_modes, ['images-non-stream']);
+            assert.deepEqual(defaultReport.onboarding.test_request_modes, [
+                'images-non-stream',
+                'images-sse',
+                'responses-non-stream',
+                'responses-sse'
+            ]);
+            assert.deepEqual(defaultReport.onboarding.tested_request_modes, ['responses-non-stream']);
+            assert.deepEqual(defaultReport.onboarding.enabled_request_modes, ['images-non-stream']);
+            assert.ok(defaultReport.configuration.blocking_reasons.includes('enabled_request_modes_not_passed'));
+            assert.equal(defaultReport.write.written, false);
+            assert.equal(existsSync(outputPath), false);
+            calls.length = 0;
+
             const result = await runMatrix(
                 [
                     '--base-url',
@@ -278,6 +331,9 @@ describe('channel capability matrix Skill script', () => {
                     '--responses-model',
                     testResponsesModel,
                     '--allow-billable',
+                    '--confirm-billable',
+                    '--enable-request-modes',
+                    'responses-non-stream',
                     '--write-env-file',
                     outputPath,
                     '--channel-index',
@@ -295,6 +351,14 @@ describe('channel capability matrix Skill script', () => {
             assert.deepEqual(report.matrix.passed, ['responses-non-stream']);
             assert.deepEqual(report.matrix.failed, ['images-non-stream', 'images-sse', 'responses-sse']);
             assert.equal(report.configuration.ready, true);
+            assert.deepEqual(report.onboarding.test_request_modes, [
+                'images-non-stream',
+                'images-sse',
+                'responses-non-stream',
+                'responses-sse'
+            ]);
+            assert.deepEqual(report.onboarding.tested_request_modes, ['responses-non-stream']);
+            assert.deepEqual(report.onboarding.enabled_request_modes, ['responses-non-stream']);
             assert.equal(report.configuration.image_backend, 'responses-image-generation');
             assert.equal(report.configuration.streaming_strategy, 'auto');
             assert.equal(report.write.written, true);
@@ -358,6 +422,7 @@ describe('channel capability matrix Skill script', () => {
                     '--responses-model',
                     testResponsesModel,
                     '--allow-billable',
+                    '--confirm-billable',
                     '--write-env-file',
                     outputPath,
                     '--channel-id',
@@ -374,7 +439,18 @@ describe('channel capability matrix Skill script', () => {
             assert.deepEqual(report.matrix.passed, []);
             assert.equal(report.matrix.modes['images-non-stream'].has_remote_url_result, true);
             assert.equal(report.configuration.ready, false);
-            assert.deepEqual(report.configuration.blocking_reasons, ['no_consumable_image_mode']);
+            assert.deepEqual(report.onboarding.test_request_modes, [
+                'images-non-stream',
+                'images-sse',
+                'responses-non-stream',
+                'responses-sse'
+            ]);
+            assert.deepEqual(report.onboarding.tested_request_modes, []);
+            assert.deepEqual(report.onboarding.enabled_request_modes, ['images-non-stream']);
+            assert.deepEqual(report.configuration.blocking_reasons, [
+                'no_consumable_image_mode',
+                'enabled_request_modes_not_passed'
+            ]);
             assert.equal(report.write.written, false);
             assert.equal(report.write.reason, 'configuration_not_ready');
             assert.equal(existsSync(outputPath), false);
@@ -388,10 +464,9 @@ describe('channel capability matrix Skill script', () => {
         const tempRoot = mkdtempSync(join(tmpdir(), 'channel-capability-matrix-non-billable-'));
         const outputPath = join(tempRoot, 'unverified.env');
         try {
-            const result = await runMatrix(
-                ['--base-url', 'http://127.0.0.1:9/v1', '--write-env-file', outputPath],
-                { GPT_IMAGE_UPSTREAM_API_KEY: testApiKey }
-            );
+            const result = await runMatrix(['--base-url', 'http://127.0.0.1:9/v1', '--write-env-file', outputPath], {
+                GPT_IMAGE_UPSTREAM_API_KEY: testApiKey
+            });
 
             assert.equal(result.status, 2);
             assert.match(result.stderr, /--allow-billable/);
@@ -402,20 +477,137 @@ describe('channel capability matrix Skill script', () => {
         }
     });
 
-    it('includes the exact allowlist required for a remote plain HTTP upstream', async () => {
+    it('requires a separate confirmation flag before a billable capability matrix can run', async () => {
+        const result = await runMatrix(['--base-url', 'http://127.0.0.1:9/v1', '--allow-billable'], {
+            GPT_IMAGE_UPSTREAM_API_KEY: testApiKey
+        });
+
+        assert.equal(result.status, 2);
+        assert.match(result.stderr, /--confirm-billable/);
+        assert.equal(result.stdout.trim(), '');
+    });
+
+    it('rejects a billable matrix without an API key before contacting the upstream', async () => {
+        const calls = [];
+        const fixture = await startServer(
+            createServer((request, response) => {
+                calls.push(request.url);
+                sendJson(response, 500, { error: { message: 'unexpected probe' } });
+            })
+        );
+        try {
+            const result = await runMatrix(
+                ['--base-url', `${fixture.baseUrl}/v1`, '--allow-billable', '--confirm-billable'],
+                {}
+            );
+
+            assert.equal(result.status, 2);
+            assert.match(result.stderr, /需要有效的 GPT_IMAGE_UPSTREAM_API_KEY/);
+            assert.match(result.stderr, /未发送计费探针/);
+            assert.equal(result.stdout.trim(), '');
+            assert.deepEqual(calls, []);
+        } finally {
+            await fixture.close();
+        }
+    });
+
+    it('rejects remote plain HTTP before starting any upstream probe', async () => {
+        const result = await runMatrix(
+            ['--base-url', 'http://images.internal.example.test/v1', '--allow-billable', '--confirm-billable'],
+            { GPT_IMAGE_UPSTREAM_API_KEY: testApiKey }
+        );
+
+        assert.equal(result.status, 2);
+        assert.match(result.stderr, /--allow-plain-http/);
+        assert.equal(result.stdout.trim(), '');
+    });
+
+    it('requires explicit confirmation before adding a remote plain HTTP allowlist', async () => {
         const baseUrl = 'http://images.internal.example.test/v1';
+        assert.throws(
+            () =>
+                buildChannelEnvConfig({
+                    channelIndex: 4,
+                    channelId: 'invalid channel',
+                    baseUrl,
+                    apiKey: testApiKey,
+                    requestModes: ['images-non-stream'],
+                    allowPlainHttp: true
+                }),
+            /channel_id/
+        );
+        assert.throws(
+            () =>
+                buildChannelEnvConfig({
+                    channelIndex: 4,
+                    channelId: 'plain-http',
+                    baseUrl: 'https://user:secret@example.test/v1',
+                    apiKey: testApiKey,
+                    requestModes: ['images-non-stream'],
+                    allowPlainHttp: true
+                }),
+            /不能包含凭据/
+        );
+        assert.throws(
+            () =>
+                buildChannelEnvConfig({
+                    channelIndex: 4,
+                    channelId: 'plain-http',
+                    baseUrl,
+                    apiKey: 'key,with-comma',
+                    requestModes: ['images-non-stream'],
+                    allowPlainHttp: true
+                }),
+            /api_key_contains_comma/
+        );
+        assert.throws(
+            () =>
+                buildChannelEnvConfig({
+                    channelIndex: 4,
+                    channelId: 'plain-http',
+                    baseUrl,
+                    apiKey: testApiKey,
+                    requestModes: ['images-non-stream'],
+                    requestModePriority: ['images-sse'],
+                    allowPlainHttp: true
+                }),
+            /request_mode_priority/
+        );
+        assert.throws(
+            () =>
+                buildChannelEnvConfig({
+                    channelIndex: 4,
+                    channelId: 'plain-http',
+                    baseUrl,
+                    apiKey: testApiKey,
+                    requestModes: ['images-non-stream']
+                }),
+            /--allow-plain-http/
+        );
+        assert.throws(
+            () =>
+                buildRedactedChannelEnvPreview({
+                    channelIndex: 4,
+                    channelId: 'plain-http',
+                    baseUrl,
+                    requestModes: ['images-non-stream']
+                }),
+            /--allow-plain-http/
+        );
         const config = buildChannelEnvConfig({
             channelIndex: 4,
             channelId: 'plain-http',
             baseUrl,
             apiKey: testApiKey,
-            requestModes: ['images-non-stream']
+            requestModes: ['images-non-stream'],
+            allowPlainHttp: true
         });
         const preview = buildRedactedChannelEnvPreview({
             channelIndex: 4,
             channelId: 'plain-http',
             baseUrl,
-            requestModes: ['images-non-stream']
+            requestModes: ['images-non-stream'],
+            allowPlainHttp: true
         });
 
         assert.match(config, new RegExp(`OPENAI_ALLOWED_PLAIN_HTTP_API_BASE_URLS=${escapeRegExp(baseUrl)}`));
@@ -508,11 +700,15 @@ function resolveGeneratedConfig(envFilePath) {
         '}));'
     ].join('\n');
     return new Promise((resolveResult) => {
-        const child = spawn(process.execPath, ['--env-file', envFilePath, '--import', 'tsx', '--input-type=module', '--eval', script], {
-            cwd: repoRoot,
-            env: buildIsolatedEnvironment(),
-            stdio: ['ignore', 'pipe', 'pipe']
-        });
+        const child = spawn(
+            process.execPath,
+            ['--env-file', envFilePath, '--import', 'tsx', '--input-type=module', '--eval', script],
+            {
+                cwd: repoRoot,
+                env: buildIsolatedEnvironment(),
+                stdio: ['ignore', 'pipe', 'pipe']
+            }
+        );
         let stdout = '';
         let stderr = '';
         child.stdout.setEncoding('utf8');

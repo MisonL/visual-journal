@@ -117,6 +117,53 @@ describe('Agent skill script argument validation', () => {
         );
     });
 
+    it('preserves a deployment path when listing models', async () => {
+        await withServer(
+            (request, response) => {
+                assert.equal(request.url, '/playground/api/agent/models');
+                response.writeHead(200, { 'content-type': 'application/json' });
+                response.end(
+                    JSON.stringify({
+                        ok: true,
+                        default_model: 'gpt-image-2',
+                        known_models: [],
+                        channels: []
+                    })
+                );
+            },
+            async (baseUrl) => {
+                const result = await runSkillScriptAsync(
+                    'list-models.mjs',
+                    ['--json', '--base-url', `${baseUrl}/playground`],
+                    { GPT_IMAGE_AGENT_TOKEN: 'path-token' }
+                );
+                assert.equal(result.status, 0);
+                assert.equal(result.stderr, '');
+            }
+        );
+    });
+
+    it('rejects cross-origin model-directory redirects without forwarding credentials', async () => {
+        const received = [];
+        await withServer(
+            (request, response) => {
+                received.push({ url: request.url, authorization: request.headers.authorization });
+                response.writeHead(302, { location: 'https://attacker.example/api/agent/models' });
+                response.end();
+            },
+            async (baseUrl) => {
+                const result = await runSkillScriptAsync(
+                    'list-models.mjs',
+                    ['--json', '--base-url', baseUrl],
+                    { GPT_IMAGE_AGENT_TOKEN: 'redirect-secret' }
+                );
+                assert.equal(result.status, 1);
+                assert.match(result.stderr, /拒绝跨源重定向/);
+                assert.deepEqual(received, [{ url: '/api/agent/models', authorization: 'Bearer redirect-secret' }]);
+            }
+        );
+    });
+
     it('rejects invalid list-models arguments before making a request', () => {
         const missingValue = runSkillScript('list-models.mjs', ['--base-url']);
         assert.equal(missingValue.status, 2);
@@ -743,6 +790,52 @@ describe('Agent skill script argument validation', () => {
         );
     });
 
+    it('uses the configured default model for upstream probes and local planning', async () => {
+        let imageRequestModel = '';
+        await withServer(
+            async (request, response) => {
+                if (request.url === '/v1/models') {
+                    response.writeHead(200, { 'content-type': 'application/json' });
+                    response.end(JSON.stringify({ data: [{ id: 'custom-image-model' }] }));
+                    return;
+                }
+                if (request.url === '/v1/images/generations') {
+                    const body = JSON.parse(await readRequestText(request));
+                    imageRequestModel = body.model;
+                    response.writeHead(200, { 'content-type': 'application/json' });
+                    response.end(JSON.stringify({ data: [{ b64_json: 'YmFzZTY0LWltYWdl' }] }));
+                    return;
+                }
+                response.writeHead(404, { 'content-type': 'application/json' });
+                response.end(JSON.stringify({ error: 'missing' }));
+            },
+            async (baseUrl) => {
+                const probe = await runSkillScriptAsync(
+                    'probe-upstream-image.mjs',
+                    [
+                        '--base-url',
+                        `${baseUrl}/v1`,
+                        '--allow-billable',
+                        '--request-mode',
+                        'images-non-stream',
+                        '--timeout-ms',
+                        localUpstreamProbeTimeoutMs
+                    ],
+                    { GPT_IMAGE_UPSTREAM_API_KEY: 'probe-secret', OPENAI_IMAGE_MODEL: 'custom-image-model' }
+                );
+                assert.equal(probe.status, 0, `${probe.stderr}\n${probe.stdout}`);
+                assert.equal(JSON.parse(probe.stdout).request_modes.passed[0], 'images-non-stream');
+
+                const generate = runSkillScript('generate-image.mjs', ['--base-url', `${baseUrl}/v1`, 'prompt'], {
+                    OPENAI_IMAGE_MODEL: 'custom-image-model'
+                });
+                assert.equal(generate.status, 0, generate.stderr);
+                assert.equal(JSON.parse(generate.stdout).request.model, 'custom-image-model');
+                assert.equal(imageRequestModel, 'custom-image-model');
+            }
+        );
+    });
+
     it('uses an explicit connection IP without changing the upstream hostname', async () => {
         let hostHeader = '';
         await withServer(
@@ -801,6 +894,63 @@ describe('Agent skill script argument validation', () => {
                 assert.equal(body.summary.request_headers.has_extra_headers, true);
                 assert.deepEqual(body.summary.request_headers.configured_header_names, ['authorization', 'user-agent']);
                 assert.equal(JSON.stringify(body).includes('probe-secret'), false);
+            }
+        );
+    });
+
+    it('redacts an API key echoed in an upstream probe error body', async () => {
+        await withServer(
+            (request, response) => {
+                assert.equal(request.headers.authorization, 'Bearer echoed-probe-secret');
+                response.writeHead(401, { 'content-type': 'application/json' });
+                response.end(
+                    JSON.stringify({
+                        error: { message: 'invalid credential echoed-probe-secret' }
+                    })
+                );
+            },
+            async (baseUrl) => {
+                const result = await runSkillScriptAsync(
+                    'probe-upstream-image.mjs',
+                    ['--base-url', `${baseUrl}/v1`, '--timeout-ms', localUpstreamProbeTimeoutMs],
+                    { GPT_IMAGE_UPSTREAM_API_KEY: 'echoed-probe-secret' }
+                );
+
+                assert.equal(result.status, 1);
+                assert.doesNotMatch(result.stdout, /echoed-probe-secret/);
+                assert.doesNotMatch(result.stderr, /echoed-probe-secret/);
+            }
+        );
+    });
+
+    it('redacts short API keys from structured upstream probe errors', async () => {
+        await withServer(
+            (request, response) => {
+                assert.equal(request.headers.authorization, 'Bearer k');
+                response.writeHead(401, { 'content-type': 'application/json' });
+                response.end(
+                    JSON.stringify({
+                        error: {
+                            code: 'credential-k-invalid',
+                            type: 'upstream-k-error',
+                            message: 'key k rejected'
+                        }
+                    })
+                );
+            },
+            async (baseUrl) => {
+                const result = await runSkillScriptAsync(
+                    'probe-upstream-image.mjs',
+                    ['--base-url', `${baseUrl}/v1`, '--timeout-ms', localUpstreamProbeTimeoutMs],
+                    { GPT_IMAGE_UPSTREAM_API_KEY: 'k' }
+                );
+
+                assert.equal(result.status, 1);
+                assert.doesNotMatch(result.stdout, /credential-k-invalid/);
+                assert.doesNotMatch(result.stdout, /upstream-k-error/);
+                assert.doesNotMatch(result.stdout, /key k rejected/);
+                assert.match(result.stdout, /\[redacted\]/);
+                assert.doesNotMatch(result.stderr, /credential-k-invalid|upstream-k-error|key k rejected/);
             }
         );
     });
@@ -4849,12 +4999,21 @@ describe('Agent skill script argument validation', () => {
         assert.match(skillText, /必须优先运行本 Skill 内置 scripts\/generate-image\.mjs/);
         assert.match(skillText, /替代 Codex 内置的通用生图 Skill/);
         assert.match(skillText, /scripts\/channel-capability-matrix\.mjs/);
+        assert.match(skillText, /--allow-billable --confirm-billable/);
+        assert.match(skillText, /--allow-plain-http/);
+        assert.match(skillText, /tested_request_modes/);
+        assert.match(skillText, /enabled_request_modes/);
+        assert.match(skillText, /默认只启用 `images-non-stream`/);
         assert.match(skillText, /不要临时编写脚本、curl 命令或手写 fetch\/FormData/);
         assert.match(openAiYaml, /先选择并运行内置脚本/);
         assert.match(openAiYaml, /替代 Codex 内置的通用生图 Skill/);
         assert.match(openAiYaml, /不要临时编写 API 调用脚本/);
         assert.match(apiReference, /先使用这些内置脚本/);
         assert.match(apiReference, /scripts\/channel-capability-matrix\.mjs/);
+        assert.match(apiReference, /--allow-billable --confirm-billable/);
+        assert.match(apiReference, /--allow-plain-http/);
+        assert.match(apiReference, /tested_request_modes/);
+        assert.match(apiReference, /enabled_request_modes/);
         assert.match(apiReference, /不要临时编写 Node、Python 或 shell 脚本、curl 命令或手写 fetch\/FormData/);
     });
 
@@ -7719,6 +7878,62 @@ describe('Agent skill script argument validation', () => {
                         'generated_artifact_failed_dimension_check'
                     );
                     assert.deepEqual(body.failure_summary.tasks[0].artifact_ids, ['dim-image-bad', 'dim-image-ok']);
+                }
+            );
+        } finally {
+            rmSync(tempRoot, { recursive: true, force: true });
+        }
+    });
+
+    it('rejects an omitted-model batch size using the configured default model policy', () => {
+        const tempRoot = mkdtempSync(join(tmpdir(), 'gpt-image-batch-default-model-size-'));
+        try {
+            const inputPath = join(tempRoot, 'legacy-default.jsonl');
+            writeFileSync(inputPath, JSON.stringify({ id: 'legacy-default', prompt: 'prompt', size: '2048x2048' }));
+
+            const result = runSkillScript('batch-images.mjs', ['--input', inputPath], {
+                OPENAI_IMAGE_MODEL: 'gpt-image-1'
+            });
+
+            assert.equal(result.status, 2);
+            assert.match(result.stderr, /legacy-default\.size 对自定义模型 gpt-image-1 无效/);
+            assert.equal(result.stdout.trim(), '');
+        } finally {
+            rmSync(tempRoot, { recursive: true, force: true });
+        }
+    });
+
+    it('revalidates an omitted-model batch size against the remote default model', async () => {
+        const tempRoot = mkdtempSync(join(tmpdir(), 'gpt-image-batch-remote-default-size-'));
+        try {
+            const inputPath = join(tempRoot, 'remote-default.jsonl');
+            writeFileSync(inputPath, JSON.stringify({ id: 'remote-default', prompt: 'prompt', size: '2048x2048' }));
+            let imageRequests = 0;
+
+            await withServer(
+                (request, response) => {
+                    if (request.url === '/api/agent/capabilities') {
+                        response.writeHead(200, { 'content-type': 'application/json' });
+                        response.end(JSON.stringify(agentGenerateCapabilities({ defaults: { model: 'gpt-image-1' } })));
+                        return;
+                    }
+                    if (request.url === '/api/agent/image-requests') imageRequests += 1;
+                    response.writeHead(500, { 'content-type': 'application/json' });
+                    response.end(JSON.stringify({ error: 'unexpected request' }));
+                },
+                async (baseUrl) => {
+                    const result = await runSkillScriptAsync(
+                        'batch-images.mjs',
+                        ['--allow-billable', '--input', inputPath],
+                        { GPT_IMAGE_PLAYGROUND_URL: baseUrl }
+                    );
+
+                    assert.equal(result.status, 1);
+                    assert.equal(result.stderr.trim(), '');
+                    assert.equal(imageRequests, 0);
+                    const body = JSON.parse(result.stdout);
+                    assert.equal(body.results[0].billable, false);
+                    assert.match(body.results[0].error, /gpt-image-1/);
                 }
             );
         } finally {

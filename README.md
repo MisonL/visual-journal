@@ -201,6 +201,8 @@ node skills/visual-journal-image-agent/scripts/generate-image.mjs \
 
 仓库内置脚本默认执行预演（dry-run），不触发真实生图。只有用户明确允许计费后，才添加 `--allow-billable`。
 
+首次添加或更换上游渠道时，先执行非计费 `/models` 检查并向用户说明四种请求方式测试范围。得到明确同意后，运行 `channel-capability-matrix.mjs --allow-billable --confirm-billable`；远程非 loopback HTTP 还需显式添加 `--allow-plain-http`，否则脚本会在任何探针前拒绝。矩阵固定测试 Images/Responses 的非流式和 SSE 方式，但默认只启用通过验证的 `images-non-stream`。其他通过方式必须用 `--enable-request-modes` 显式选择，不能把测试通过当作自动启用；`smoke:image-upstream-real` 仅用于已有配置的定向诊断，不能替代首次接入矩阵。
+
 新增探针、诊断或路由可观测能力时，先落 API、能力声明和 OpenAPI 契约，再让 Skill 脚本做薄封装。完整参数、批量任务、编辑、分享、诊断、真实冒烟验证和边界矩阵见：
 
 - [Agent Skill](./skills/visual-journal-image-agent/SKILL.md)

@@ -25,7 +25,6 @@ import {
 import {
     errorMessage,
     assertValidImageSizeForModel,
-    DEFAULT_IMAGE_MODEL,
     normalizeOutputFormat,
     parseImageSizeValue,
     parseRetryAfterValue,
@@ -35,6 +34,7 @@ import {
     readOptionValue,
     readPartialImages,
     resolveCapabilitiesDefaultImageModel,
+    resolveConfiguredDefaultImageModel,
     loadPrivateAgentEnvFile,
     resolveAgentToken,
     resolvePlaygroundBaseUrl,
@@ -59,13 +59,13 @@ const OUTPUT_FORMATS = new Set(['png', 'jpeg', 'webp']);
 const MODERATIONS = new Set(['low', 'auto']);
 const THINKING_VALUES = new Set(['minimal', 'none', 'low', 'medium', 'high', 'xhigh']);
 const DEFAULT_PAGE_OUTPUT_FORMAT = 'webp';
-const DEFAULT_MODEL = DEFAULT_IMAGE_MODEL;
 const DEFAULT_PAGE_OUTPUT_COMPRESSION = 100;
 const DIMENSION_CHECK_URL_FIELDS = ['absolute_content_url', 'content_url', 'absolute_path', 'path'];
 const EDIT_DIMENSION_CHECK_NEXT_STEP =
     '确认当前编辑渠道是否支持请求尺寸，或调整任务接受实际返回尺寸；重新执行必须使用新的 Idempotency-Key。';
 
 loadPrivateAgentEnvFile();
+const DEFAULT_MODEL = resolveConfiguredDefaultImageModel();
 const token = resolveAgentToken();
 const passwordHash = process.env.GPT_IMAGE_APP_PASSWORD_HASH || '';
 const contractCheck = process.env.GPT_IMAGE_AGENT_CONTRACT_CHECK === '1' || process.argv.includes('--contract-check');

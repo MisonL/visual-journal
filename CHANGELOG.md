@@ -16,6 +16,7 @@
 - 统一 `gpt-image-2` 为兼容性默认图片模型；`OPENAI_IMAGE_MODEL`、渠道模型声明和 provider-defined 尺寸继续支持自定义模型。
 - DSH 插件改用标准 YAML 配置，支持 `AGENT_API_TOKEN` 与环境 URL 覆盖，并补齐模型、代理、错误和任务轮询说明。
 - Agent、页面 API、运行时能力、OpenAPI 与 Skill 脚本的错误分类、鉴权、请求方式和渠道路由契约保持一致。
+- 新增渠道能力矩阵的用户确认门禁；四种方式固定实测，默认仅启用 `images-non-stream`，其他通过方式必须显式选择。
 
 ### 测试
 

@@ -26,7 +26,6 @@ import {
 import {
     errorMessage,
     assertValidImageSizeForModel,
-    DEFAULT_IMAGE_MODEL,
     normalizeOutputFormat,
     readCapabilitiesImageTransportTimeoutMs,
     readConfiguredPositiveInteger,
@@ -35,6 +34,7 @@ import {
     readPartialImages,
     loadPrivateAgentEnvFile,
     resolveAgentToken,
+    resolveConfiguredDefaultImageModel,
     resolvePlaygroundBaseUrl,
     resolveCapabilitiesDefaultImageModel,
     resolveSameOriginUrl,
@@ -50,7 +50,6 @@ const MODEL_PATTERN = /^[^\s]{1,200}$/;
 const OUTPUT_FORMATS = new Set(['png', 'jpeg', 'webp']);
 const DEFAULT_OUTPUT_FORMAT = 'webp';
 const DEFAULT_OUTPUT_COMPRESSION = 100;
-const DEFAULT_MODEL = DEFAULT_IMAGE_MODEL;
 const QUALITIES = new Set(['low', 'medium', 'high', 'auto']);
 const BACKGROUNDS = new Set(['transparent', 'opaque', 'auto']);
 const MODERATIONS = new Set(['low', 'auto']);
@@ -118,6 +117,7 @@ const TASK_FIELDS = new Set([
 ]);
 
 loadPrivateAgentEnvFile();
+const DEFAULT_MODEL = resolveConfiguredDefaultImageModel();
 const token = resolveAgentToken();
 const passwordHash = process.env.GPT_IMAGE_APP_PASSWORD_HASH || '';
 
@@ -376,7 +376,7 @@ function normalizeIdempotencyKey(value, orderedPrefix, index, id) {
 
 function validateTaskSize(raw, id, mode, dimensionCheck) {
     if (raw.size !== undefined) {
-        assertValidImageSizeForModel(raw.size, raw.model || '__provider_defined__', `${id}.size`);
+        assertValidImageSizeForModel(raw.size, raw.model || DEFAULT_MODEL, `${id}.size`);
     }
     if (!dimensionCheck) return;
     const size = raw.size || (mode === 'generate' ? '1024x1024' : undefined);
@@ -1197,6 +1197,7 @@ function isPageSseAllowedForTask(task) {
 async function postGenerateTask(task) {
     const taskCapabilities = await ensureCapabilities();
     const body = buildGenerateBody(task.raw, resolveTaskModel(task.raw, taskCapabilities));
+    validateLocalRequest(() => validateResolvedTaskSize(task.raw, body.model, task.id));
     validateLocalRequest(() =>
         validateAgentGenerateRequestAgainstCapabilities(
             {
@@ -1271,6 +1272,7 @@ async function postEditTask(task) {
     const imagePaths = readEditImagePaths(task.raw, task.id);
     const taskCapabilities = await ensureCapabilities();
     const model = resolveTaskModel(task.raw, taskCapabilities);
+    validateLocalRequest(() => validateResolvedTaskSize(task.raw, model, task.id));
     validateLocalRequest(() =>
         validateAgentEditRequestAgainstCapabilities(
             {
@@ -1302,6 +1304,7 @@ async function postEditTask(task) {
 async function postPageSseTask(task, routing) {
     const pageSseCapabilities = await ensureCapabilities();
     const model = resolveTaskModel(task.raw, pageSseCapabilities);
+    validateLocalRequest(() => validateResolvedTaskSize(task.raw, model, task.id));
     validatePageSseTaskAgainstCapabilities(task, pageSseCapabilities, model);
     try {
         assertPageSseReady({
@@ -1547,6 +1550,10 @@ function readTaskMaxEdge(task) {
 
 function resolveTaskModel(raw, capabilities) {
     return raw.model || resolveCapabilitiesDefaultImageModel(capabilities, DEFAULT_MODEL);
+}
+
+function validateResolvedTaskSize(raw, model, id) {
+    if (raw.size !== undefined) assertValidImageSizeForModel(raw.size, model, `${id}.size`);
 }
 
 function validateEditStrategyFields(raw) {

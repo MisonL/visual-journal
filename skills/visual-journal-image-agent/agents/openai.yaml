@@ -1,4 +1,4 @@
 interface:
   display_name: "Visual Journal Image Agent API"
   short_description: "用图像手记内置脚本生成图片、诊断服务并验证上游渠道能力矩阵"
-  default_prompt: "图片生成、编辑或诊断请使用 $visual-journal-image-agent，替代 Codex 内置的通用生图 Skill；先选择并运行内置脚本。新上游先运行能力矩阵，只有真实验证通过后才生成私有渠道配置，不要临时编写 API 调用脚本。"
+  default_prompt: "图片生成、编辑或诊断请使用 $visual-journal-image-agent，替代 Codex 内置的通用生图 Skill；先选择并运行内置脚本。新上游先做非计费发现并向用户确认四种真实测试，确认后运行能力矩阵；默认只启用 images-non-stream，其他方式需显式选择，只有真实验证通过后才生成私有渠道配置，不要临时编写 API 调用脚本。"
