@@ -10,7 +10,7 @@ import {
     isChannelRequestModeFailure,
     isCredentialFailure
 } from './channel-router';
-import { RequestValidationError } from './image-request-utils';
+import { readPlainHttpApiBaseUrlAllowlist, RequestValidationError } from './image-request-utils';
 import type { ImageGenerationBackend } from './image-upstream-strategy';
 import { getServerChannelState } from './server-channel-router';
 import { buildAccessCookie, readBooleanEnv, resolveImageOutputDir, serializeAccessCookie } from './server-runtime';
@@ -473,8 +473,12 @@ async function resolveRequestActualCost(input: {
     expectedImageCount: number;
 }): Promise<ActualCostDetails> {
     const finishedAtMs = Date.now();
+    const allowedPlainHttpBaseUrls = readPlainHttpApiBaseUrlAllowlist(
+        process.env.OPENAI_ALLOWED_PLAIN_HTTP_API_BASE_URLS
+    );
     if (!input.apiBaseUrl) {
         return resolveActualCost({
+            allowedPlainHttpBaseUrls,
             model: input.model,
             startedAtMs: input.startedAtMs,
             finishedAtMs,
@@ -485,6 +489,7 @@ async function resolveRequestActualCost(input: {
         apiBaseUrl: input.apiBaseUrl,
         apiKey: input.apiKey,
         ...(input.upstreamProxyUrl ? { upstreamProxyUrl: input.upstreamProxyUrl } : {}),
+        allowedPlainHttpBaseUrls,
         model: input.model,
         startedAtMs: input.startedAtMs,
         finishedAtMs,

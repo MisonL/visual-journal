@@ -15,7 +15,6 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { findBatchPromptOverLimitIndex, readBatchPromptLines } from '@/lib/batch-prompts';
 import type { GptImageModel } from '@/lib/cost-utils';
-import { GPT_IMAGE_MODELS, isGptImage2Model } from '@/lib/cost-utils';
 import { useI18n } from '@/lib/i18n';
 import { getImageOutputFormatLabel, getImageQualityLabel } from '@/lib/image-display-labels';
 import { MAX_PROMPT_LENGTH } from '@/lib/image-request-limits';
@@ -50,7 +49,9 @@ import {
     getPresetTooltip,
     getSizePresetOptions,
     formatExactImagePixelCount,
+    shouldUsePositiveIntegerImageSize,
     readImageSizeNumberInput,
+    supportsCustomImageSize,
     validateGptImage2Size,
     validatePositiveIntegerImageSize
 } from '@/lib/size-utils';
@@ -399,9 +400,8 @@ export function GenerationForm({
 }: GenerationFormProps) {
     const { locale, t } = useI18n();
     const showCompression = outputFormat === 'jpeg' || outputFormat === 'webp';
-    const isGptImage2 = isGptImage2Model(model);
-    const supportsCustomSize = isGptImage2 || !GPT_IMAGE_MODELS.includes(model as (typeof GPT_IMAGE_MODELS)[number]);
-    const usesPositiveIntegerCustomSize = upstreamProfile.gptImage2.sizePolicy === 'positive-integer' || !isGptImage2;
+    const supportsCustomSize = supportsCustomImageSize(model);
+    const usesPositiveIntegerCustomSize = shouldUsePositiveIntegerImageSize(model, upstreamProfile);
     const customSizeValidation =
         size === 'custom'
             ? usesPositiveIntegerCustomSize

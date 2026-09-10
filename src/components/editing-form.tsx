@@ -14,7 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { GptImageModel } from '@/lib/cost-utils';
-import { GPT_IMAGE_MODELS, isGptImage2Model } from '@/lib/cost-utils';
+import { isGptImage2Model } from '@/lib/cost-utils';
 import {
     formatEditSourceValidationFailure,
     formatEditUploadLimit,
@@ -50,7 +50,9 @@ import {
     getPresetTooltip,
     getSizePresetOptions,
     formatExactImagePixelCount,
+    shouldUsePositiveIntegerImageSize,
     readImageSizeNumberInput,
+    supportsCustomImageSize,
     validateGptImage2Size,
     validatePositiveIntegerImageSize
 } from '@/lib/size-utils';
@@ -398,9 +400,8 @@ export function EditingForm({
     const [firstImagePreviewUrl, setFirstImagePreviewUrl] = React.useState<string | null>(null);
 
     const isGptImage2 = isGptImage2Model(editModel);
-    const supportsCustomSize =
-        isGptImage2 || !GPT_IMAGE_MODELS.includes(editModel as (typeof GPT_IMAGE_MODELS)[number]);
-    const usesPositiveIntegerCustomSize = upstreamProfile.gptImage2.sizePolicy === 'positive-integer' || !isGptImage2;
+    const supportsCustomSize = supportsCustomImageSize(editModel);
+    const usesPositiveIntegerCustomSize = shouldUsePositiveIntegerImageSize(editModel, upstreamProfile);
     const customSizeValidation =
         editSize === 'custom'
             ? usesPositiveIntegerCustomSize

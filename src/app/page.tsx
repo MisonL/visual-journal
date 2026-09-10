@@ -106,7 +106,12 @@ import { resolveResultActionState } from '@/lib/result-action-state';
 import { resolveRuntimeHealthStatus, type RuntimeHealthStatus } from '@/lib/runtime-health-status';
 import { sha256Hex } from '@/lib/sha256';
 import { createImageShareFromBlob } from '@/lib/share-client';
-import { getPresetDimensions, validateGptImage2Size, validatePositiveIntegerImageSize } from '@/lib/size-utils';
+import {
+    getPresetDimensions,
+    shouldUsePositiveIntegerImageSize,
+    validateGptImage2Size,
+    validatePositiveIntegerImageSize
+} from '@/lib/size-utils';
 import {
     applyStreamingClientEvent,
     BatchPausedError,
@@ -603,6 +608,7 @@ export default function HomePage() {
     const [runtimeCapabilities, setRuntimeCapabilities] = React.useState<RuntimeCapabilities | null>(null);
     const [modelOptions, setModelOptions] = React.useState<string[]>([...DEFAULT_MODEL_OPTIONS]);
     const modelProbeKeysRef = React.useRef<Set<string>>(new Set());
+    const modelProbeGenerationRef = React.useRef(0);
     const [isRuntimeCapabilitiesLoading, setIsRuntimeCapabilitiesLoading] = React.useState(true);
     const [loadedWebuiImageRetentionState, setLoadedWebuiImageRetentionState] =
         React.useState<LoadedWebuiImageRetentionState | null>(null);
@@ -789,16 +795,17 @@ export default function HomePage() {
     const editSourceValidationMessage = editSourceValidationFailure
         ? formatEditSourceValidationFailure(editSourceValidationFailure, t)
         : '';
-    const usesPositiveIntegerCustomSize = activeUpstreamProfile.gptImage2.sizePolicy === 'positive-integer';
+    const generateUsesPositiveIntegerCustomSize = shouldUsePositiveIntegerImageSize(genModel, activeUpstreamProfile);
+    const editUsesPositiveIntegerCustomSize = shouldUsePositiveIntegerImageSize(editModel, activeUpstreamProfile);
     const currentGenerateSizeValidation =
         genSize === 'custom'
-            ? usesPositiveIntegerCustomSize
+            ? generateUsesPositiveIntegerCustomSize
                 ? validatePositiveIntegerImageSize(genCustomWidth, genCustomHeight)
                 : validateGptImage2Size(genCustomWidth, genCustomHeight)
             : { valid: true as const };
     const currentEditSizeValidation =
         editSize === 'custom'
-            ? usesPositiveIntegerCustomSize
+            ? editUsesPositiveIntegerCustomSize
                 ? validatePositiveIntegerImageSize(editCustomWidth, editCustomHeight)
                 : validateGptImage2Size(editCustomWidth, editCustomHeight)
             : { valid: true as const };
@@ -1479,9 +1486,11 @@ export default function HomePage() {
     React.useEffect(() => {
         const canProbeModelDirectory = isPasswordRequiredByBackend === true && Boolean(clientPasswordHash);
         const probeKey = canProbeModelDirectory ? `page:${clientPasswordHash}` : 'anonymous';
+        const generation = modelProbeGenerationRef.current + 1;
+        modelProbeGenerationRef.current = generation;
         if (modelProbeKeysRef.current.has(probeKey)) return;
-        modelProbeKeysRef.current.add(probeKey);
         const controller = new AbortController();
+        const isCurrentProbe = () => !controller.signal.aborted && modelProbeGenerationRef.current === generation;
         const fetchModelDirectory = async (endpoint: string) => {
             const response = await fetch(endpoint, {
                 signal: controller.signal,
@@ -1519,10 +1528,12 @@ export default function HomePage() {
                     channels?: Array<{
                         declared_models?: unknown;
                         model_allowlist_configured?: unknown;
+                        model_allowlist_state?: unknown;
                         models?: unknown;
                         probe_status?: unknown;
                     }>;
                 }) => {
+                    if (!isCurrentProbe()) return;
                     const nextOptions = resolveModelDirectoryOptions(directory);
                     if (nextOptions.length > 0) setModelOptions(nextOptions);
                     const defaultModel =
@@ -1533,6 +1544,7 @@ export default function HomePage() {
                         setGenModel((current) => (nextOptions.includes(current) ? current : preferredModel));
                         setEditModel((current) => (nextOptions.includes(current) ? current : preferredModel));
                     }
+                    modelProbeKeysRef.current.add(probeKey);
                 }
             )
             .catch(() => undefined);

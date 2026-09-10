@@ -114,7 +114,12 @@ export function matchNewApiCostLog(input: {
     };
 }
 
-async function fetchLogs(url: URL, apiKey: string, upstreamProxyUrl?: string): Promise<NewApiLogEntry[] | undefined> {
+async function fetchLogs(
+    url: URL,
+    apiKey: string,
+    upstreamProxyUrl?: string,
+    input?: Pick<ResolveActualCostInput, 'apiBaseUrl' | 'allowedPlainHttpBaseUrls'>
+): Promise<NewApiLogEntry[] | undefined> {
     const abortController = new AbortController();
     const timeout = setTimeout(() => abortController.abort(), FETCH_TIMEOUT_MS);
     try {
@@ -127,7 +132,12 @@ async function fetchLogs(url: URL, apiKey: string, upstreamProxyUrl?: string): P
                 },
                 signal: abortController.signal
             },
-            upstreamProxyUrl
+            upstreamProxyUrl,
+            undefined,
+            {
+                baseURL: input?.apiBaseUrl,
+                allowedPlainHttpBaseUrls: input?.allowedPlainHttpBaseUrls
+            }
         );
         if (!response.ok) return undefined;
 
@@ -154,7 +164,7 @@ export class NewApiCostResolver implements ActualCostResolver {
 
         try {
             for (let attempt = 0; attempt < POLL_ATTEMPTS; attempt += 1) {
-                const logs = await fetchLogs(url, input.apiKey, input.upstreamProxyUrl);
+                const logs = await fetchLogs(url, input.apiKey, input.upstreamProxyUrl, input);
                 if (logs) {
                     const result = matchNewApiCostLog({
                         logs,

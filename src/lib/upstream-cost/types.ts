@@ -28,8 +28,18 @@ export type ActualCostDetails = {
 };
 
 type UpstreamCostCredentials =
-    | { apiBaseUrl: string; apiKey: string; upstreamProxyUrl?: string }
-    | { apiBaseUrl?: undefined; apiKey?: undefined; upstreamProxyUrl?: undefined };
+    | {
+          apiBaseUrl: string;
+          apiKey: string;
+          upstreamProxyUrl?: string;
+          allowedPlainHttpBaseUrls?: string[];
+      }
+    | {
+          apiBaseUrl?: undefined;
+          apiKey?: undefined;
+          upstreamProxyUrl?: undefined;
+          allowedPlainHttpBaseUrls?: string[];
+      };
 
 export type ResolveActualCostInput = UpstreamCostCredentials & {
     model: string;

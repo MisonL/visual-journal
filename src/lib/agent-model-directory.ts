@@ -22,6 +22,7 @@ export type AgentModelChannel = {
     configured: boolean;
     declared_models?: string[];
     model_allowlist_configured?: boolean;
+    model_allowlist_state?: 'unrestricted' | 'restricted' | 'mixed';
     models: string[];
     probe_status: 'not_probed' | 'ok' | 'failed';
     http_status?: number;
@@ -68,6 +69,7 @@ export function buildAgentModelDirectory(env: Record<string, string | undefined>
                 configured: Boolean(url && credential.apiKey),
                 declared_models: [...declaredModels],
                 model_allowlist_configured: declaredModels.length > 0,
+                model_allowlist_state: declaredModels.length > 0 ? 'restricted' : 'unrestricted',
                 models: [...declaredModels],
                 probe_status: 'not_probed'
             });
@@ -81,17 +83,23 @@ export function buildAgentModelDirectory(env: Record<string, string | undefined>
         // channel as allowlisted when every credential has an explicit list;
         // otherwise unrestricted credentials must keep generic models visible.
         existing.model_allowlist_configured = existing.model_allowlist_configured === true && declaredModels.length > 0;
+        const previousState = existing.model_allowlist_state;
+        const currentState = declaredModels.length > 0 ? 'restricted' : 'unrestricted';
+        existing.model_allowlist_state =
+            previousState === currentState || previousState === 'mixed' ? previousState : 'mixed';
     }
     const channels = Array.from(channelsById.values());
     const knownModels: AgentModelEntry[] = [
-        {
-            id: defaultModel,
-            source: 'project_default' as const,
-            custom: !AGENT_MODELS.includes(defaultModel as (typeof AGENT_MODELS)[number]),
-            status: 'declared' as const,
-            size_policy: 'provider_defined' as const,
-            strict_dimensions: false
-        },
+        AGENT_MODELS.includes(defaultModel as (typeof AGENT_MODELS)[number])
+            ? createDeclaredProjectModelEntry(defaultModel as (typeof AGENT_MODELS)[number], 'project_default')
+            : {
+                  id: defaultModel,
+                  source: 'project_default' as const,
+                  custom: true,
+                  status: 'declared' as const,
+                  size_policy: 'provider_defined' as const,
+                  strict_dimensions: false
+              },
         ...AGENT_MODELS.filter((model) => model !== defaultModel).map((id) => createDeclaredProjectModelEntry(id))
     ];
     for (const model of configured) {
@@ -115,11 +123,14 @@ export function buildAgentModelDirectory(env: Record<string, string | undefined>
     };
 }
 
-function createDeclaredProjectModelEntry(id: (typeof AGENT_MODELS)[number]): AgentModelEntry {
+function createDeclaredProjectModelEntry(
+    id: (typeof AGENT_MODELS)[number],
+    source: 'project_default' | 'project_known' = 'project_known'
+): AgentModelEntry {
     const providerDefined = id === 'gpt-image-2' || id === 'gpt-image-2-1k';
     return {
         id,
-        source: 'project_known',
+        source,
         custom: false,
         status: 'declared',
         size_policy: providerDefined ? 'provider_defined' : 'legacy_allowlist',

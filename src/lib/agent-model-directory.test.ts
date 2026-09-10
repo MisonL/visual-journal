@@ -45,6 +45,7 @@ describe('agent model directory', () => {
         });
 
         assert.equal(directory.channels[0]?.model_allowlist_configured, false);
+        assert.equal(directory.channels[0]?.model_allowlist_state, 'mixed');
         assert.deepEqual(directory.channels[0]?.declared_models, ['custom-image']);
     });
 
@@ -215,6 +216,18 @@ describe('agent model directory', () => {
             directory.known_models.find((entry) => entry.id === 'gpt-image-1')?.size_policy,
             'legacy_allowlist'
         );
+    });
+
+    it('derives the configured legacy default model size policy', () => {
+        const directory = buildAgentModelDirectory({ OPENAI_IMAGE_MODEL: 'gpt-image-1' });
+        assert.deepEqual(directory.known_models[0], {
+            id: 'gpt-image-1',
+            source: 'project_default',
+            custom: false,
+            status: 'declared',
+            size_policy: 'legacy_allowlist',
+            strict_dimensions: false
+        });
     });
 
     it('rejects oversized model probe responses', async () => {

@@ -607,6 +607,7 @@ export function buildAgentOpenApiDocument(env: Record<string, string | undefined
                                     'configured',
                                     'declared_models',
                                     'model_allowlist_configured',
+                                    'model_allowlist_state',
                                     'models',
                                     'probe_status'
                                 ],
@@ -616,6 +617,10 @@ export function buildAgentOpenApiDocument(env: Record<string, string | undefined
                                     configured: { type: 'boolean' },
                                     declared_models: { type: 'array', items: { type: 'string' } },
                                     model_allowlist_configured: { type: 'boolean' },
+                                    model_allowlist_state: {
+                                        type: 'string',
+                                        enum: ['unrestricted', 'restricted', 'mixed']
+                                    },
                                     models: { type: 'array', items: { type: 'string' } },
                                     probe_status: { type: 'string', enum: ['not_probed', 'ok', 'failed'] },
                                     http_status: { type: 'integer' },

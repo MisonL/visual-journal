@@ -230,6 +230,45 @@ describe('history metadata helpers', () => {
         });
     });
 
+    it('preserves provider-defined model dimensions instead of mapping them to legacy presets', () => {
+        assert.deepEqual(readHistorySizeSelection(historyWithSize('2048x2048'), 'custom-image-model'), {
+            size: 'custom',
+            customWidth: 2048,
+            customHeight: 2048,
+            restored: true
+        });
+        assert.deepEqual(readHistorySizeSelection(historyWithSize('4096x2160'), 'custom-image-model'), {
+            size: 'custom',
+            customWidth: 4096,
+            customHeight: 2160,
+            restored: true
+        });
+    });
+
+    it('serializes restored provider-defined ratio presets as concrete dimensions', () => {
+        const form = buildHistoryGenerationFormData(
+            {
+                ...historyWithSize('square'),
+                model: 'custom-image-model'
+            },
+            fallbackGenerationForm
+        );
+
+        assert.equal(form.size, 'square');
+        const entry = buildCompletedHistoryEntry({
+            images: [{ filename: 'custom.png', output_format: 'png' }],
+            usage: null,
+            actualCost: undefined,
+            durationMs: 100,
+            formData: form,
+            requestMode: 'generate',
+            storageMode: 'fs'
+        });
+
+        assert.equal(entry.model, 'custom-image-model');
+        assert.equal(entry.size, '1024x1024');
+    });
+
     it('does not restore zero or unsafe custom dimensions from saved history', () => {
         for (const size of ['0x1536', '2304x0', '9007199254740992x1536']) {
             assert.deepEqual(readHistorySizeSelection(historyWithSize(size), 'gpt-image-2'), {

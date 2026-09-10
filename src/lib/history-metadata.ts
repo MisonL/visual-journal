@@ -1,6 +1,6 @@
 import { formatBatchPromptHistory, readBatchPromptLines } from './batch-prompts';
 import { calculateApiCost, isGptImage2Model, type CostDetails, type GptImageModel } from './cost-utils';
-import { getPresetDimensions } from './size-utils';
+import { getPresetDimensions, isProviderDefinedCustomModel, validatePositiveIntegerImageSize } from './size-utils';
 import type { ApiImageResponseItem } from './streaming-batch';
 import type { ActualCostDetails } from './upstream-cost/resolve';
 import type { EditingFormData } from '@/components/editing-form';
@@ -174,6 +174,25 @@ export function readHistorySizeSelection(
     }
 
     const presets: Array<Exclude<GenerationFormData['size'], 'auto' | 'custom'>> = ['square', 'landscape', 'portrait'];
+    if (isProviderDefinedCustomModel(model)) {
+        if (presets.includes(rawSize as (typeof presets)[number])) {
+            return { size: rawSize as (typeof presets)[number], customWidth: null, customHeight: null, restored: true };
+        }
+        const customMatch = /^(\d+)x(\d+)$/.exec(rawSize);
+        if (customMatch) {
+            const customWidth = Number(customMatch[1]);
+            const customHeight = Number(customMatch[2]);
+            if (validatePositiveIntegerImageSize(customWidth, customHeight).valid) {
+                return {
+                    size: 'custom',
+                    customWidth,
+                    customHeight,
+                    restored: true
+                };
+            }
+        }
+        return { size: 'auto', customWidth: null, customHeight: null, restored: false };
+    }
     const matchedPreset = presets.find(
         (preset) => rawSize === preset || rawSize === getPresetDimensions(preset, model)
     );

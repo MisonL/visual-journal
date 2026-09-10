@@ -826,6 +826,13 @@ function readAgentAutoGenerateCandidates(input: {
     const credentials = serverState?.config.credentials ?? parseChannelPoolConfig(process.env).credentials;
     const healthyModesByCredential = readHealthyCredentialRequestModes();
     const isAvailable = (credential: (typeof credentials)[number], requestMode: ChannelRequestMode) => {
+        if (
+            credential.models !== undefined &&
+            credential.models.length > 0 &&
+            !credential.models.includes(input.model)
+        ) {
+            return false;
+        }
         if (!getEffectiveChannelRequestModes(credential).includes(requestMode)) return false;
         if (
             isStreamingChannelRequestMode(requestMode) &&

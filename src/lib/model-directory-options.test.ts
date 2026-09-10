@@ -95,4 +95,22 @@ describe('resolveModelDirectoryOptions', () => {
             ['custom-image']
         );
     });
+
+    it('does not hide generic models for a redacted mixed-credential channel', () => {
+        const options = resolveModelDirectoryOptions({
+            default_model: 'gpt-image-2',
+            known_models: DEFAULT_MODEL_OPTIONS.map((id) => ({ id })),
+            channels: [
+                {
+                    declared_models: [],
+                    model_allowlist_configured: false,
+                    model_allowlist_state: 'mixed',
+                    models: ['custom-image'],
+                    probe_status: 'not_probed'
+                }
+            ]
+        });
+        assert.equal(options.includes('gpt-image-2'), true);
+        assert.equal(options.includes('custom-image'), true);
+    });
 });

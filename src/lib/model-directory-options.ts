@@ -13,6 +13,7 @@ type ModelDirectoryEntry = {
 type ModelDirectoryChannel = {
     declared_models?: unknown;
     model_allowlist_configured?: unknown;
+    model_allowlist_state?: unknown;
     models?: unknown;
     probe_status?: unknown;
 };
@@ -68,6 +69,8 @@ function readDeclaredChannelModels(channel: ModelDirectoryChannel): string[] {
 }
 
 function hasChannelModelAllowlist(channel: ModelDirectoryChannel, channelModels: string[]): boolean {
+    if (channel.model_allowlist_state === 'mixed' || channel.model_allowlist_state === 'unrestricted') return false;
+    if (channel.model_allowlist_state === 'restricted') return true;
     if (typeof channel.model_allowlist_configured === 'boolean') {
         if (channel.model_allowlist_configured) return true;
         // Unauthenticated declaration responses redact the explicit allowlist

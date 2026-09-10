@@ -326,6 +326,46 @@ describe('validateAgentGenerateRequest', () => {
         }
     });
 
+    it('filters automatic preview candidates by the requested model allowlist', () => {
+        const originalEnv = { ...process.env };
+        try {
+            process.env.OPENAI_CHANNEL_1_ID = 'non-stream-other-model';
+            process.env.OPENAI_CHANNEL_1_BASE_URL = 'https://non-stream.example.com/v1';
+            process.env.OPENAI_CHANNEL_1_API_KEYS = 'non-stream-key';
+            process.env.OPENAI_CHANNEL_1_MODELS = 'gpt-image-2';
+            process.env.OPENAI_CHANNEL_1_REQUEST_MODES = 'images-non-stream';
+            process.env.OPENAI_CHANNEL_1_PROVIDER_MANIFEST = JSON.stringify({
+                id: 'non-stream-other-model-provider',
+                base_profile: 'openai-compatible',
+                modes: { generate: { submit: { path: '/images/generations' } } },
+                constraints: { partial_images: { min: 0, max: 0 } }
+            });
+            process.env.OPENAI_CHANNEL_2_ID = 'sse-requested-model';
+            process.env.OPENAI_CHANNEL_2_BASE_URL = 'https://sse.example.com/v1';
+            process.env.OPENAI_CHANNEL_2_API_KEYS = 'sse-key';
+            process.env.OPENAI_CHANNEL_2_MODELS = 'gpt-image-2-1k';
+            process.env.OPENAI_CHANNEL_2_REQUEST_MODES = 'images-sse';
+            process.env.OPENAI_CHANNEL_2_PROVIDER_MANIFEST = JSON.stringify({
+                id: 'sse-requested-model-provider',
+                base_profile: 'openai-compatible',
+                modes: { generate: { submit: { path: '/images/generations' } } },
+                constraints: { partial_images: { min: 3, max: 3 } }
+            });
+
+            const request = validateAgentGenerateRequest({
+                prompt: 'automatic model-aware preview default',
+                model: 'gpt-image-2-1k',
+                n: 1,
+                stream_mode: 'auto',
+                streaming_strategy: 'auto'
+            });
+
+            assert.equal(request.partial_images, 3);
+        } finally {
+            restoreEnv(originalEnv);
+        }
+    });
+
     it('chooses a healthy SSE preview default when the non-stream channel is cooling down', async () => {
         const originalEnv = { ...process.env };
         let resetServerChannelStateForTests: (() => void) | undefined;

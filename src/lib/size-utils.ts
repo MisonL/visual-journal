@@ -12,6 +12,24 @@ export const GPT_IMAGE_2_MAX_EDGE = 3840;
 export const GPT_IMAGE_2_EDGE_MULTIPLE = 16;
 export const GPT_IMAGE_2_MAX_ASPECT = 3;
 
+export function isProviderDefinedCustomModel(model: GptImageModel): boolean {
+    return !(GPT_IMAGE_MODELS as readonly string[]).includes(model);
+}
+
+export function supportsCustomImageSize(model: GptImageModel): boolean {
+    return isGptImage2Model(model) || isProviderDefinedCustomModel(model);
+}
+
+export function shouldUsePositiveIntegerImageSize(
+    model: GptImageModel,
+    upstreamProfile: Pick<ImageUpstreamProfile, 'gptImage2'>
+): boolean {
+    return (
+        isProviderDefinedCustomModel(model) ||
+        (isGptImage2Model(model) && upstreamProfile.gptImage2.sizePolicy === 'positive-integer')
+    );
+}
+
 export function validateGptImage2Size(width: number, height: number): SizeValidation {
     if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
         return {
