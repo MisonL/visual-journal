@@ -71,7 +71,7 @@ describe('agent model directory', () => {
 
     it('uses channel headers and proxy while probing models', async () => {
         const requests: Array<{ headers: Headers }> = [];
-        globalThis.fetch = async (input, init) => {
+        globalThis.fetch = async (_input, init) => {
             requests.push({ headers: new Headers(init?.headers) });
             return new Response(JSON.stringify({ data: [{ id: 'custom-image' }] }), {
                 status: 200,

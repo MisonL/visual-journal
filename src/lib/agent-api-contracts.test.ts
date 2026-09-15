@@ -81,8 +81,7 @@ describe('validateAgentGenerateRequest', () => {
                 image_backend: 'responses-image-generation',
                 responsesModel: 'gpt-5.4-mini',
                 thinking: 'medium',
-                promptOptimization: false,
-                force_web: true
+                promptOptimization: false
             }),
             {
                 model: 'gpt-image-2',
@@ -101,8 +100,7 @@ describe('validateAgentGenerateRequest', () => {
                 partial_images: 2,
                 responsesModel: 'gpt-5.4-mini',
                 thinking: 'medium',
-                promptOptimization: false,
-                force_web: true
+                promptOptimization: false
             }
         );
     });
@@ -626,6 +624,25 @@ describe('validateAgentGenerateRequest', () => {
         assert.equal(request.size, '2048x2048');
     });
 
+    it('enforces the local resource budget for provider-defined sizes', () => {
+        assert.throws(
+            () =>
+                validateAgentGenerateRequest({
+                    prompt: 'oversized custom model request',
+                    model: 'custom-image-model',
+                    size: '100000x100000',
+                    force_request: true
+                }),
+            (error) => {
+                assert.ok(error instanceof RequestValidationError);
+                assert.equal(error.status, 422);
+                const details = JSON.parse(error.message) as { fields: Record<string, string> };
+                assert.match(details.fields.size, /单边最大值/);
+                return true;
+            }
+        );
+    });
+
     it('rejects gpt-image-2 sizes that are not positive integer dimensions', () => {
         for (const { size, pattern } of [
             { size: '0x512', pattern: /正数/ },
@@ -794,6 +811,10 @@ describe('buildAgentCapabilities', () => {
         assert.equal(capabilities.model_limits['gpt-image-2'].max_aspect, 3);
         assert.equal(capabilities.model_limits['gpt-image-2'].size_policy, 'openai-compatible');
         assert.equal(capabilities.model_limits['gpt-image-2'].allow_transparent_background, false);
+        assert.deepEqual(capabilities.model_limits.provider_defined, {
+            max_edge: 8192,
+            max_pixels: 67_108_864
+        });
         assert.deepEqual(capabilities.force_request_controls, {
             field: 'force_request',
             cli_flag: '--force-request',
@@ -1438,7 +1459,12 @@ describe('buildAgentCapabilities', () => {
         assert.equal(capabilities.limits.max_upload_mb, 10);
         assert.equal(capabilities.limits.max_total_upload_mb, 80);
         assert.equal(capabilities.limits.upstream_profile_mixed, true);
-        assert.equal(capabilities.model_limits['gpt-image-2'].allow_transparent_background, false);
+        assert.equal(capabilities.model_limits['gpt-image-2'].allow_transparent_background, true);
+        assert.equal(capabilities.model_limits['gpt-image-2'].size_policy, 'positive-integer');
+        assert.deepEqual(capabilities.model_limits.provider_defined, {
+            max_edge: 8192,
+            max_pixels: 67_108_864
+        });
     });
 
     it('keeps Agent capabilities valid when channel image count ranges do not intersect', () => {
@@ -1806,6 +1832,15 @@ describe('buildAgentCapabilities', () => {
         for (let index = 0; index < 10; index += 1) {
             assert.deepEqual(editProperties[`image_${index}`], { type: 'string', format: 'binary' });
         }
+        assert.deepEqual(document.components.schemas.AgentModelLimits.required, [
+            'gpt-image-2',
+            'gpt-image-2-1k',
+            'provider_defined'
+        ]);
+        assert.deepEqual(document.components.schemas.AgentModelLimits.properties.provider_defined.required, [
+            'max_edge',
+            'max_pixels'
+        ]);
         const capabilityProperties = document.components.schemas.AgentCapabilities.properties;
         assert.equal(capabilityProperties.routing_rules.$ref, '#/components/schemas/AgentRoutingRules');
         assert.equal(capabilityProperties.image_transport.$ref, '#/components/schemas/ImageTransportCapabilities');

@@ -67,6 +67,7 @@ function authorizeModelRequest(request: NextRequest, probe: boolean): boolean {
 
 function redactUnauthenticatedDirectory(directory: ReturnType<typeof buildAgentModelDirectory>): void {
     directory.channels.forEach((channel, index) => {
+        const hadMixedCredentials = channel.model_allowlist_state === 'mixed';
         // Keep model IDs available so an unauthenticated local workbench can
         // preserve channel/model compatibility, but do not disclose deployment
         // channel names, explicit allowlist markers, or health/probe details.
@@ -74,6 +75,12 @@ function redactUnauthenticatedDirectory(directory: ReturnType<typeof buildAgentM
         delete channel.host;
         channel.declared_models = [];
         channel.model_allowlist_configured = false;
+        // A shared channel may contain both restricted and unrestricted
+        // credentials. Keep an anonymous marker so the selector does not
+        // mistake retained model IDs for a complete allowlist, without
+        // disclosing the concrete credential mix.
+        if (hadMixedCredentials) channel.model_allowlist_state = 'redacted';
+        else delete channel.model_allowlist_state;
         channel.probe_status = 'not_probed';
         delete channel.http_status;
         delete channel.error_code;

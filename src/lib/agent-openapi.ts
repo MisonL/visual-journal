@@ -148,7 +148,12 @@ export function buildAgentOpenApiDocument(env: Record<string, string | undefined
     const imagesNonStreamPartialImagesCondition = buildNonStreamPartialImagesCondition(
         hasImagesAutomaticNonStreamChannel
     );
-    const supportedBackgrounds = capabilities.upstream_profile.activeConstraints.gptImage2.allowTransparentBackground
+    const supportsTransparentBackground =
+        capabilities.upstream_profile.activeConstraints.gptImage2.allowTransparentBackground ||
+        capabilities.upstream_request_headers.channels.some(
+            (channel) => channel.constraints.gpt_image_2.allow_transparent_background
+        );
+    const supportedBackgrounds = supportsTransparentBackground
         ? AGENT_BACKGROUNDS
         : AGENT_BACKGROUNDS.filter((value) => value !== 'transparent');
     const jsonContent = (schemaRef: string) => ({
@@ -607,7 +612,6 @@ export function buildAgentOpenApiDocument(env: Record<string, string | undefined
                                     'configured',
                                     'declared_models',
                                     'model_allowlist_configured',
-                                    'model_allowlist_state',
                                     'models',
                                     'probe_status'
                                 ],
@@ -619,7 +623,7 @@ export function buildAgentOpenApiDocument(env: Record<string, string | undefined
                                     model_allowlist_configured: { type: 'boolean' },
                                     model_allowlist_state: {
                                         type: 'string',
-                                        enum: ['unrestricted', 'restricted', 'mixed']
+                                        enum: ['unrestricted', 'restricted', 'mixed', 'redacted']
                                     },
                                     models: { type: 'array', items: { type: 'string' } },
                                     probe_status: { type: 'string', enum: ['not_probed', 'ok', 'failed'] },
@@ -824,6 +828,9 @@ export function buildAgentOpenApiDocument(env: Record<string, string | undefined
                                 'edit_images_by_backend',
                                 'upload_images',
                                 'max_upload_mb',
+                                ...(capabilities.limits.max_total_upload_mb !== undefined
+                                    ? ['max_total_upload_mb']
+                                    : []),
                                 'partial_images',
                                 'partial_images_by_backend',
                                 'upstream_profile',
@@ -883,7 +890,14 @@ export function buildAgentOpenApiDocument(env: Record<string, string | undefined
                                     additionalProperties: false
                                 },
                                 max_upload_mb: { type: 'number', const: capabilities.limits.max_upload_mb },
-                                max_total_upload_mb: { type: 'number', const: capabilities.limits.max_total_upload_mb },
+                                ...(capabilities.limits.max_total_upload_mb !== undefined
+                                    ? {
+                                          max_total_upload_mb: {
+                                              type: 'number',
+                                              const: capabilities.limits.max_total_upload_mb
+                                          }
+                                      }
+                                    : {}),
                                 partial_images: {
                                     type: 'object',
                                     required: ['min', 'max'],
@@ -1104,7 +1118,7 @@ export function buildAgentOpenApiDocument(env: Record<string, string | undefined
                     type: 'object',
                     description:
                         '已知模型的专用约束。未列出的自定义模型由渠道 provider manifest 或上游 API 决定尺寸、背景和能力。',
-                    required: ['gpt-image-2', 'gpt-image-2-1k'],
+                    required: ['gpt-image-2', 'gpt-image-2-1k', 'provider_defined'],
                     properties: {
                         'gpt-image-2': {
                             type: 'object',
@@ -1114,6 +1128,8 @@ export function buildAgentOpenApiDocument(env: Record<string, string | undefined
                                 'edge_multiple',
                                 'max_aspect',
                                 'min_pixels',
+                                'size_policy',
+                                'allow_transparent_background',
                                 'recommended_presets',
                                 'large_image_risk'
                             ],
@@ -1121,8 +1137,10 @@ export function buildAgentOpenApiDocument(env: Record<string, string | undefined
                                 max_edge: { type: 'integer', minimum: 1 },
                                 max_pixels: { type: 'integer', minimum: 1 },
                                 edge_multiple: { type: 'integer', minimum: 1 },
-                                max_aspect: { type: 'number', minimum: 1 },
+                                max_aspect: { type: ['number', 'null'], minimum: 1 },
                                 min_pixels: { type: 'integer', minimum: 1 },
+                                size_policy: { type: 'string', enum: ['provider_defined', 'openai-compatible'] },
+                                allow_transparent_background: { type: 'boolean' },
                                 recommended_presets: {
                                     type: 'array',
                                     items: {
@@ -1143,7 +1161,8 @@ export function buildAgentOpenApiDocument(env: Record<string, string | undefined
                                         guidance: { type: 'string' }
                                     }
                                 }
-                            }
+                            },
+                            additionalProperties: false
                         },
                         'gpt-image-2-1k': {
                             type: 'object',
@@ -1153,6 +1172,8 @@ export function buildAgentOpenApiDocument(env: Record<string, string | undefined
                                 'edge_multiple',
                                 'max_aspect',
                                 'min_pixels',
+                                'size_policy',
+                                'allow_transparent_background',
                                 'recommended_presets',
                                 'large_image_risk'
                             ],
@@ -1160,9 +1181,9 @@ export function buildAgentOpenApiDocument(env: Record<string, string | undefined
                                 max_edge: { type: 'integer', minimum: 1 },
                                 max_pixels: { type: 'integer', minimum: 1 },
                                 edge_multiple: { type: 'integer', minimum: 1 },
-                                max_aspect: { type: 'number', minimum: 1 },
+                                max_aspect: { type: ['number', 'null'], minimum: 1 },
                                 min_pixels: { type: 'integer', minimum: 1 },
-                                size_policy: { type: 'string' },
+                                size_policy: { type: 'string', enum: ['provider_defined', 'openai-compatible'] },
                                 allow_transparent_background: { type: 'boolean' },
                                 recommended_presets: {
                                     type: 'array',
@@ -1186,6 +1207,16 @@ export function buildAgentOpenApiDocument(env: Record<string, string | undefined
                                     },
                                     additionalProperties: false
                                 }
+                            },
+                            additionalProperties: false
+                        },
+                        provider_defined: {
+                            type: 'object',
+                            description: '所有 provider-defined 模型共享的本地尺寸与像素预算。',
+                            required: ['max_edge', 'max_pixels'],
+                            properties: {
+                                max_edge: { type: 'integer', minimum: 1 },
+                                max_pixels: { type: 'integer', minimum: 1 }
                             },
                             additionalProperties: false
                         }

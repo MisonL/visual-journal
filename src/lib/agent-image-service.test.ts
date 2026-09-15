@@ -2,11 +2,16 @@ import {
     buildEditRequestHash,
     completeAgentExecutionState,
     hydrateAgentReplayResponse,
+    prepareAgentEdit,
     readIdempotencyKey
 } from './agent-image-service';
 import type { AgentArtifactRecord, AgentStateStore } from './agent-state-store';
+import { RequestValidationError } from './image-request-utils';
+import { resetServerChannelStateForTests } from './server-channel-router';
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+
+const PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVQI12P4z8AAAAMBAQAY3Y2wAAAAAElFTkSuQmCC';
 
 describe('buildEditRequestHash', () => {
     it('includes uploaded file bytes so same metadata with different content conflicts', async () => {
@@ -36,6 +41,57 @@ describe('readIdempotencyKey', () => {
                 return true;
             }
         );
+    });
+});
+
+describe('prepareAgentEdit model routing validation', () => {
+    it('does not validate edit input against a credential that excludes the requested model', async () => {
+        const originalEnv = { ...process.env };
+        try {
+            Object.assign(process.env, {
+                NODE_ENV: 'test',
+                OPENAI_CHANNEL_1_ID: 'ineligible-matsca',
+                OPENAI_CHANNEL_1_BASE_URL: 'https://matsca.example.com/v1',
+                OPENAI_CHANNEL_1_API_KEYS: 'matsca-key',
+                OPENAI_CHANNEL_1_MODELS: 'gpt-image-2-1k',
+                OPENAI_CHANNEL_1_UPSTREAM_PROFILE: 'matsca',
+                OPENAI_CHANNEL_2_ID: 'eligible-openai',
+                OPENAI_CHANNEL_2_BASE_URL: 'https://openai.example.com/v1',
+                OPENAI_CHANNEL_2_API_KEYS: 'openai-key',
+                OPENAI_CHANNEL_2_MODELS: 'gpt-image-2',
+                OPENAI_CHANNEL_FAILURE_COOLDOWN_ENABLED: 'false'
+            });
+            for (const key of Object.keys(process.env)) {
+                if (
+                    key.startsWith('OPENAI_CHANNEL_') &&
+                    !key.startsWith('OPENAI_CHANNEL_1_') &&
+                    !key.startsWith('OPENAI_CHANNEL_2_') &&
+                    key !== 'OPENAI_CHANNEL_FAILURE_COOLDOWN_ENABLED'
+                ) {
+                    delete process.env[key];
+                }
+            }
+            resetServerChannelStateForTests();
+
+            const formData = new FormData();
+            formData.set('prompt', 'validate the model-compatible profile');
+            formData.set('model', 'gpt-image-2');
+            formData.set('size', '3840x3840');
+            formData.set('image_0', new File([Buffer.from(PNG_BASE64, 'base64')], 'input.png', { type: 'image/png' }));
+
+            await assert.rejects(
+                () => prepareAgentEdit(formData, new Headers()),
+                (error) => {
+                    assert.ok(error instanceof RequestValidationError);
+                    assert.equal(error.status, 400);
+                    assert.match(error.message, /size/);
+                    return true;
+                }
+            );
+        } finally {
+            resetServerChannelStateForTests();
+            restoreProcessEnv(originalEnv);
+        }
     });
 });
 
@@ -145,6 +201,15 @@ function makeEditForm(bytes: number[]): FormData {
     formData.append('response_mode', 'path');
     formData.append('image_0', new File([Buffer.from(bytes)], 'input.png', { type: 'image/png' }));
     return formData;
+}
+
+function restoreProcessEnv(snapshot: NodeJS.ProcessEnv): void {
+    for (const key of Object.keys(process.env)) {
+        if (!(key in snapshot)) delete process.env[key];
+    }
+    for (const [key, value] of Object.entries(snapshot)) {
+        process.env[key] = value;
+    }
 }
 
 function createReplayStore(artifacts: AgentArtifactRecord[]): AgentStateStore {

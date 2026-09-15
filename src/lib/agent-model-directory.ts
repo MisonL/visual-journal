@@ -22,7 +22,7 @@ export type AgentModelChannel = {
     configured: boolean;
     declared_models?: string[];
     model_allowlist_configured?: boolean;
-    model_allowlist_state?: 'unrestricted' | 'restricted' | 'mixed';
+    model_allowlist_state?: 'unrestricted' | 'restricted' | 'mixed' | 'redacted';
     models: string[];
     probe_status: 'not_probed' | 'ok' | 'failed';
     http_status?: number;

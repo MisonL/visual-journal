@@ -65,6 +65,8 @@ import {
     GPT_IMAGE_2_MAX_EDGE,
     GPT_IMAGE_2_MAX_PIXELS,
     GPT_IMAGE_2_MIN_PIXELS,
+    PROVIDER_DEFINED_MAX_EDGE,
+    PROVIDER_DEFINED_MAX_PIXELS,
     validateGptImage2Size,
     validatePositiveIntegerImageSize
 } from './size-utils';
@@ -352,7 +354,7 @@ export type AgentCapabilities = {
             max_edge: number;
             max_pixels: number;
             edge_multiple: number;
-            max_aspect: number;
+            max_aspect: number | null;
             min_pixels: number;
             size_policy: ImageUpstreamProfile['gptImage2']['sizePolicy'];
             allow_transparent_background: boolean;
@@ -366,7 +368,7 @@ export type AgentCapabilities = {
             max_edge: number;
             max_pixels: number;
             edge_multiple: number;
-            max_aspect: number;
+            max_aspect: number | null;
             min_pixels: number;
             size_policy: ImageUpstreamProfile['gptImage2']['sizePolicy'];
             allow_transparent_background: boolean;
@@ -375,6 +377,10 @@ export type AgentCapabilities = {
                 applies_to: string[];
                 guidance: string;
             };
+        };
+        provider_defined: {
+            max_edge: number;
+            max_pixels: number;
         };
     };
     agent_streaming: {
@@ -1061,6 +1067,22 @@ function readAgentThinking(body: Record<string, unknown>, fields: FieldErrors): 
     return undefined;
 }
 
+function validateAgentBackendSpecificFields(
+    imageBackend: ImageGenerationBackend,
+    fields: FieldErrors,
+    values: { thinking?: string; promptOptimization?: boolean; forceWeb?: boolean }
+): void {
+    if (imageBackend !== 'responses-image-generation') {
+        if (values.thinking !== undefined) fields.thinking = '仅适用于 image_backend=responses-image-generation';
+        if (values.promptOptimization !== undefined) {
+            fields.promptOptimization = '仅适用于 image_backend=responses-image-generation';
+        }
+    }
+    if (imageBackend === 'responses-image-generation' && values.forceWeb !== undefined) {
+        fields.force_web = '仅适用于 image_backend=images-api';
+    }
+}
+
 function readOutputCompression(
     body: Record<string, unknown>,
     outputFormat: ValidOutputFormat,
@@ -1187,6 +1209,7 @@ export function validateAgentGenerateRequest(body: unknown): AgentGenerateReques
     const thinking = readAgentThinking(objectBody, fields);
     const promptOptimization = readOptionalBooleanField(objectBody, 'promptOptimization', fields);
     const forceWeb = readOptionalBooleanField(objectBody, 'force_web', fields);
+    validateAgentBackendSpecificFields(imageBackend, fields, { thinking, promptOptimization, forceWeb });
     validateAgentGenerateBackground({
         model,
         background,
@@ -1518,6 +1541,22 @@ export function buildAgentCapabilities(env: Record<string, string | undefined>):
         channelSummary.channels
     );
     const defaultPartialImages = clampDefaultPartialImages(partialImagesByBackend['images-api']);
+    const usesProviderDefinedImageSize = upstreamLimits.validationProfile.gptImage2.sizePolicy === 'positive-integer';
+    const modelSizeMetadata = usesProviderDefinedImageSize
+        ? {
+              max_edge: PROVIDER_DEFINED_MAX_EDGE,
+              max_pixels: PROVIDER_DEFINED_MAX_PIXELS,
+              edge_multiple: 1,
+              max_aspect: null,
+              min_pixels: 1
+          }
+        : {
+              max_edge: GPT_IMAGE_2_MAX_EDGE,
+              max_pixels: GPT_IMAGE_2_MAX_PIXELS,
+              edge_multiple: GPT_IMAGE_2_EDGE_MULTIPLE,
+              max_aspect: GPT_IMAGE_2_MAX_ASPECT,
+              min_pixels: GPT_IMAGE_2_MIN_PIXELS
+          };
     return {
         api_version: AGENT_API_VERSION,
         schema_version: AGENT_SCHEMA_VERSION,
@@ -1579,13 +1618,9 @@ export function buildAgentCapabilities(env: Record<string, string | undefined>):
         },
         model_limits: {
             'gpt-image-2': {
-                max_edge: GPT_IMAGE_2_MAX_EDGE,
-                max_pixels: GPT_IMAGE_2_MAX_PIXELS,
-                edge_multiple: GPT_IMAGE_2_EDGE_MULTIPLE,
-                max_aspect: GPT_IMAGE_2_MAX_ASPECT,
-                min_pixels: GPT_IMAGE_2_MIN_PIXELS,
-                size_policy: upstreamLimits.profile.gptImage2.sizePolicy,
-                allow_transparent_background: upstreamLimits.profile.gptImage2.allowTransparentBackground,
+                ...modelSizeMetadata,
+                size_policy: upstreamLimits.validationProfile.gptImage2.sizePolicy,
+                allow_transparent_background: upstreamLimits.validationProfile.gptImage2.allowTransparentBackground,
                 recommended_presets: [
                     { name: 'square', size: '2048x2048', purpose: '通用正方形构图' },
                     { name: 'landscape', size: '3072x2048', purpose: '横向宽幅构图' },
@@ -1597,13 +1632,9 @@ export function buildAgentCapabilities(env: Record<string, string | undefined>):
                 }
             },
             'gpt-image-2-1k': {
-                max_edge: GPT_IMAGE_2_MAX_EDGE,
-                max_pixels: GPT_IMAGE_2_MAX_PIXELS,
-                edge_multiple: GPT_IMAGE_2_EDGE_MULTIPLE,
-                max_aspect: GPT_IMAGE_2_MAX_ASPECT,
-                min_pixels: GPT_IMAGE_2_MIN_PIXELS,
-                size_policy: upstreamLimits.profile.gptImage2.sizePolicy,
-                allow_transparent_background: upstreamLimits.profile.gptImage2.allowTransparentBackground,
+                ...modelSizeMetadata,
+                size_policy: upstreamLimits.validationProfile.gptImage2.sizePolicy,
+                allow_transparent_background: upstreamLimits.validationProfile.gptImage2.allowTransparentBackground,
                 recommended_presets: [
                     { name: 'square', size: '2048x2048', purpose: '通用正方形构图' },
                     { name: 'landscape', size: '3072x2048', purpose: '横向宽幅构图' },
@@ -1613,6 +1644,10 @@ export function buildAgentCapabilities(env: Record<string, string | undefined>):
                     applies_to: ['max_edge>2048', 'long_running_upstream'],
                     guidance: '大尺寸请求可能耗时数分钟；失败应归类为上游长耗时风险，不代表低负载路径不可用。'
                 }
+            },
+            provider_defined: {
+                max_edge: PROVIDER_DEFINED_MAX_EDGE,
+                max_pixels: PROVIDER_DEFINED_MAX_PIXELS
             }
         },
         agent_streaming: {

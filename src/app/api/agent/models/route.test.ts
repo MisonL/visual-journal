@@ -1,3 +1,4 @@
+import { resolveModelDirectoryOptions } from '@/lib/model-directory-options';
 import { createAccessToken } from '@/lib/server-runtime';
 import { NextRequest } from 'next/server';
 import assert from 'node:assert/strict';
@@ -12,6 +13,11 @@ beforeEach(() => {
     delete process.env.OPENAI_CHANNEL_1_BASE_URL;
     delete process.env.OPENAI_CHANNEL_1_API_KEYS;
     delete process.env.OPENAI_CHANNEL_1_ID;
+    delete process.env.OPENAI_CHANNEL_1_MODELS;
+    delete process.env.OPENAI_CHANNEL_2_BASE_URL;
+    delete process.env.OPENAI_CHANNEL_2_API_KEYS;
+    delete process.env.OPENAI_CHANNEL_2_ID;
+    delete process.env.OPENAI_CHANNEL_2_MODELS;
     delete process.env.OPENAI_TUN_MODE;
     delete process.env.OPENAI_ALLOW_SYNTHETIC_DNS_IPS;
 });
@@ -20,7 +26,7 @@ afterEach(() => {
     process.env = originalEnv;
 });
 
-describe('GET /api/agent/models', () => {
+describe('GET /api/agent/models', { concurrency: false }, () => {
     it('allows a redacted declaration directory on an unauthenticated local instance', async () => {
         const { GET } = await import('./route');
 
@@ -48,6 +54,47 @@ describe('GET /api/agent/models', () => {
         assert.deepEqual(body.channels[0]?.declared_models, []);
         assert.equal(body.channels[0]?.model_allowlist_configured, false);
         assert.equal(body.channels[0]?.probe_status, 'not_probed');
+    });
+
+    it('does not disclose allowlist state in an unauthenticated declaration directory', async () => {
+        const { GET } = await import('./route');
+
+        process.env.OPENAI_CHANNEL_1_ID = 'images';
+        process.env.OPENAI_CHANNEL_1_BASE_URL = 'https://images.example/v1';
+        process.env.OPENAI_CHANNEL_1_API_KEYS = 'key';
+        process.env.OPENAI_CHANNEL_1_MODELS = 'custom-image';
+        const response = await GET(new NextRequest('http://localhost/api/agent/models'));
+        const body = (await response.json()) as {
+            channels: Array<{ model_allowlist_configured?: boolean; model_allowlist_state?: string }>;
+        };
+
+        assert.equal(response.status, 200);
+        assert.equal(body.channels[0]?.model_allowlist_configured, false);
+        assert.equal(body.channels[0]?.model_allowlist_state, undefined);
+    });
+
+    it('keeps generic models available for an anonymously redacted mixed channel', async () => {
+        const { GET } = await import('./route');
+
+        process.env.OPENAI_CHANNEL_1_ID = 'images';
+        process.env.OPENAI_CHANNEL_1_BASE_URL = 'https://images.example/v1';
+        process.env.OPENAI_CHANNEL_1_API_KEYS = 'restricted-key';
+        process.env.OPENAI_CHANNEL_1_MODELS = 'custom-image';
+        process.env.OPENAI_CHANNEL_2_ID = 'images';
+        process.env.OPENAI_CHANNEL_2_BASE_URL = 'https://images.example/v1';
+        process.env.OPENAI_CHANNEL_2_API_KEYS = 'unrestricted-key';
+
+        const response = await GET(new NextRequest('http://localhost/api/agent/models'));
+        const body = (await response.json()) as Parameters<typeof resolveModelDirectoryOptions>[0] & {
+            channels?: Array<{ models?: string[]; model_allowlist_state?: string }>;
+        };
+
+        assert.equal(response.status, 200);
+        assert.equal(body.channels?.[0]?.model_allowlist_state, 'redacted');
+        assert.ok(body.channels?.[0]?.models?.includes('custom-image'));
+        const options = resolveModelDirectoryOptions(body);
+        assert.ok(options.includes('gpt-image-2'));
+        assert.ok(options.includes('custom-image'));
     });
 
     it('rejects active probing on an unauthenticated instance', async () => {

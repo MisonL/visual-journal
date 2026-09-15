@@ -193,7 +193,12 @@ const AGENT_EDIT_UNSUPPORTED_FIELDS = [
     'image_streaming_strategy',
     'imageStreamingStrategy',
     'background',
-    'moderation'
+    'moderation',
+    'thinking',
+    'promptOptimization',
+    'prompt_optimization',
+    'force_web',
+    'forceWeb'
 ] as const;
 const AGENT_EDIT_OUTPUT_FORMAT = 'webp' satisfies ValidOutputFormat;
 
@@ -300,6 +305,8 @@ export async function agentBeginResultResponse(
 }
 
 export function prepareAgentGenerate(request: AgentGenerateRequest, headers: Headers): AgentGeneratePreparation {
+    const preValidationError = validateAgentGenerateAgainstAvailableCredentials(request);
+    if (preValidationError) throw preValidationError;
     const credentialContext = createOpenAiClient(
         headers,
         resolveAgentGenerateChannelRequestModePlan(request),
@@ -311,6 +318,45 @@ export function prepareAgentGenerate(request: AgentGenerateRequest, headers: Hea
         requestMode: credentialContext.channelRequestMode
     });
     return { credentialContext };
+}
+
+function validateAgentGenerateAgainstAvailableCredentials(
+    request: AgentGenerateRequest
+): RequestValidationError | undefined {
+    const state = getServerChannelState();
+    let hasModelAndModeCandidate = false;
+    let firstValidationError: RequestValidationError | undefined;
+    const requestModes = createAgentChannelRequestModePlan({
+        imageBackend: request.image_backend,
+        streamMode: request.stream_mode,
+        streamingStrategy: request.streaming_strategy
+    }).candidates;
+    for (const credential of state.config.credentials) {
+        if (credential.models?.length && !credential.models.includes(request.model)) continue;
+        for (const requestMode of requestModes) {
+            if (!getEffectiveChannelRequestModes(credential).includes(requestMode)) continue;
+            if (!isChannelCredentialRequestModeHealthy(state.router, credential, requestMode)) continue;
+            hasModelAndModeCandidate = true;
+            const profile =
+                credential.providerProfile ||
+                readImageUpstreamProfile({
+                    explicitProfile: credential.upstreamProfile,
+                    channelId: credential.channelId,
+                    baseUrl: credential.baseUrl
+                });
+            try {
+                validateAgentGenerateAgainstUpstreamProfile(request, profile, {
+                    forceRequest: request.force_request === true,
+                    requestMode
+                });
+                return undefined;
+            } catch (error) {
+                if (error instanceof RequestValidationError) firstValidationError ??= error;
+                else throw error;
+            }
+        }
+    }
+    return hasModelAndModeCandidate ? firstValidationError : undefined;
 }
 
 function resolveAgentGenerateChannelRequestModePlan(request: AgentGenerateRequest): AgentChannelRequestModePlan {
@@ -847,6 +893,13 @@ function validateAgentEditInputAgainstConfiguredProfiles(input: {
     const candidates =
         serverChannelState.config.credentials.length > 0
             ? serverChannelState.config.credentials.flatMap((credential) => {
+                  if (
+                      credential.models !== undefined &&
+                      credential.models.length > 0 &&
+                      !credential.models.includes(input.model)
+                  ) {
+                      return [];
+                  }
                   const requestModes = input.requestModes.filter((requestMode) => {
                       if (!getEffectiveChannelRequestModes(credential).includes(requestMode)) return false;
                       if (!isChannelCredentialRequestModeHealthy(serverChannelState.router, credential, requestMode)) {

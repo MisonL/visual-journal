@@ -69,7 +69,12 @@ function readDeclaredChannelModels(channel: ModelDirectoryChannel): string[] {
 }
 
 function hasChannelModelAllowlist(channel: ModelDirectoryChannel, channelModels: string[]): boolean {
-    if (channel.model_allowlist_state === 'mixed' || channel.model_allowlist_state === 'unrestricted') return false;
+    if (
+        channel.model_allowlist_state === 'mixed' ||
+        channel.model_allowlist_state === 'unrestricted' ||
+        channel.model_allowlist_state === 'redacted'
+    )
+        return false;
     if (channel.model_allowlist_state === 'restricted') return true;
     if (typeof channel.model_allowlist_configured === 'boolean') {
         if (channel.model_allowlist_configured) return true;
