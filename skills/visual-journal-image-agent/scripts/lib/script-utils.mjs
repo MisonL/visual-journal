@@ -6,6 +6,8 @@ const DIGITS_PATTERN = /^\d+$/;
 const IMAGE_SIZE_PATTERN = /^(\d+)x(\d+)$/;
 const LEGACY_IMAGE_SIZES = new Set(['auto', '1024x1024', '1536x1024', '1024x1536']);
 const LEGACY_IMAGE_MODELS = new Set(['gpt-image-1', 'gpt-image-1-mini', 'gpt-image-1.5']);
+const PROVIDER_DEFINED_MAX_EDGE = 8192;
+const PROVIDER_DEFINED_MAX_PIXELS = 67_108_864;
 export const DEFAULT_IMAGE_MODEL = 'gpt-image-2';
 export const DEFAULT_PLAYGROUND_BASE_URL = 'http://localhost:4783';
 const DEFAULT_PRIVATE_AGENT_ENV_FILE = '.env.agent.local';
@@ -91,8 +93,12 @@ export function readPartialImages(value, name = 'partial_images') {
 }
 
 export function resolveCapabilitiesDefaultImageModel(capabilities, fallback = DEFAULT_IMAGE_MODEL) {
+    return readCapabilitiesDefaultImageModel(capabilities) ?? fallback;
+}
+
+export function readCapabilitiesDefaultImageModel(capabilities) {
     const value = capabilities?.defaults?.model;
-    return typeof value === 'string' && /^[^\s]{1,200}$/.test(value.trim()) ? value.trim() : fallback;
+    return typeof value === 'string' && /^[^\s]{1,200}$/.test(value.trim()) ? value.trim() : undefined;
 }
 
 export function resolveConfiguredDefaultImageModel(env = process.env, fallback = DEFAULT_IMAGE_MODEL) {
@@ -433,7 +439,7 @@ export function assertValidImageSizeForModel(value, model, label = 'size') {
             return value;
         }
         if (!LEGACY_IMAGE_SIZES.has(value)) {
-            throw new Error(`${label} 对自定义模型 ${model} 无效；请使用 auto、1024x1024、1536x1024 或 1024x1536。`);
+            throw new Error(`${label} 对模型 ${model} 无效；请使用 auto、1024x1024、1536x1024 或 1024x1536。`);
         }
         return value;
     }
@@ -568,5 +574,11 @@ function assertPositiveIntegerDimensions(width, height, label) {
     }
     if (!Number.isInteger(width) || !Number.isInteger(height)) {
         throw new Error(`${label} 的宽度和高度必须是整数。`);
+    }
+    if (width > PROVIDER_DEFINED_MAX_EDGE || height > PROVIDER_DEFINED_MAX_EDGE) {
+        throw new Error(`${label} 的单边最大值为 ${PROVIDER_DEFINED_MAX_EDGE}px。`);
+    }
+    if (width * height > PROVIDER_DEFINED_MAX_PIXELS) {
+        throw new Error(`${label} 的总像素不能超过 ${PROVIDER_DEFINED_MAX_PIXELS.toLocaleString()}。`);
     }
 }

@@ -49,7 +49,7 @@ npm run env:summary -- --file .env.local --container gpt-image-playground-custom
 当服务返回相对 `content_url`、`metadata_url` 或页面 SSE `path` 时，辅助脚本会额外输出 `absolute_content_url`、`absolute_metadata_url` 或 `absolute_path`。
 同一个 `Idempotency-Key` 如果已经进入终态 `failed`，再次调用 generate/edit 或 job result/status 只会回放该失败，且 `retryable=false`。需要重新尝试时应创建新的业务操作和新的 `Idempotency-Key`。
 页面端 `/api/images` SSE 会把同一个业务 key 复用到 `clientRequestId`，因此脚本使用的 `Idempotency-Key` 不能超过 capabilities 中 `agent_streaming.page_sse.client_request_id.max_length` 声明的字符数；超长时会直接报错，不会静默截断。
-脚本会在 dry-run 和真实请求前前置校验 `--size` 或 JSONL `size`。`gpt-image-2` 和 `gpt-image-2-1k` 支持 `auto` 或正整数 `WIDTHxHEIGHT`；默认 OpenAI-compatible 上游的更严格尺寸边界由服务端 profile 或真实上游显式报错。项目声明的 legacy 模型 `gpt-image-1`、`gpt-image-1-mini`、`gpt-image-1.5` 只接受 `auto`、`1024x1024`、`1536x1024` 或 `1024x1536`。已配置或 `/models` 探测到的其他自定义模型遵循 provider-defined 语义，同样接受 `auto` 或正整数 `WIDTHxHEIGHT`，实际支持的尺寸以 `/api/agent/models` 响应中 `known_models[].size_policy`、渠道 provider manifest 和上游响应为准，不要按模型名称猜测能力。管理员确认要让真实上游决定尺寸或透明背景支持时，显式添加 `--force-request` 或在 JSONL/API 中设置 `force_request=true`；它只跳过本服务本地 upstream profile 尺寸/背景限制，鉴权、幂等键、`--allow-billable`、API URL 安全、渠道 request mode 白名单、legacy 模型尺寸白名单、正整数尺寸语法、图片数量、`partial_images`、文件大小和 mask 完整性校验仍然生效。生成、页面编辑、批量和上游探针默认请求 `output_format=webp`、`output_compression=100`。
+脚本会在 dry-run 和真实请求前前置校验 `--size` 或 JSONL `size`。`gpt-image-2` 和 `gpt-image-2-1k` 支持 `auto` 或正整数 `WIDTHxHEIGHT`；默认 OpenAI-compatible 上游的更严格尺寸边界由服务端 profile 或真实上游显式报错。项目声明的 legacy 模型 `gpt-image-1`、`gpt-image-1-mini`、`gpt-image-1.5` 只接受 `auto`、`1024x1024`、`1536x1024` 或 `1024x1536`。已配置或 `/models` 探测到的其他自定义模型遵循 provider-defined 语义，同样接受 `auto` 或正整数 `WIDTHxHEIGHT`，实际支持的尺寸以 `/api/agent/models` 响应中 `known_models[].size_policy`、渠道 provider manifest 和上游响应为准，不要按模型名称猜测能力；服务端和脚本都会拒绝超过单边 8192px 或总像素 67,108,864（64MP）的目标，确保本地图片归一化有固定资源上限。管理员确认要让真实上游决定尺寸或透明背景支持时，显式添加 `--force-request` 或在 JSONL/API 中设置 `force_request=true`；它只跳过本服务本地 upstream profile 尺寸/背景限制，不能绕过上述本地资源预算。鉴权、幂等键、`--allow-billable`、API URL 安全、渠道 request mode 白名单、legacy 模型尺寸白名单、正整数尺寸语法、图片数量、`partial_images`、文件大小和 mask 完整性校验仍然生效。生成、页面编辑、批量和上游探针默认请求 `output_format=webp`、`output_compression=100`。
 真实执行输出会包含机器可读 `summary`。成功摘要包含 `ok`、`billable`、`request_id`、`idempotency_key`、`artifact_ids`、`content_urls`、`absolute_content_urls`、`share_urls`、`direct_content_urls`、`image_dimensions`、`actual_dimensions`、`cached`、`started_at`、`completed_at`、`elapsed_ms`、`server_elapsed_ms`、`elapsed_source`、`elapsed_breakdown`、`transport`、`endpoint`、`route_mode`、`image_backend`、`stream_mode`、`streaming_strategy`、`channel_request_mode`、`channel_request_mode_fallback_applied`、`route_decision`、`selected_channel_id`、`upstream_host`、脱敏 `request_headers` 和 `next_action`。`transport` 表示 Agent 对外访问的服务端端点形态，`route_mode` 表示 Agent/job/page SSE 路径，`channel_request_mode` 表示服务端实际调用上游的 Images/Responses 与 SSE/非流式组合，`route_decision` 记录 requested backend、candidate request modes、request mode priority、preferred/fallback/selected request mode、fallback 是否发生、选中渠道、上游 host 或 no-channel 原因。`share_urls` 只在显式 `--share` 后出现，用于给用户浏览器打开分享页；`direct_content_urls` 只在显式 `--share` 后出现，用于分享后的内容直链；公开分享可直接打开 `direct_content_urls`，设置访问码时优先给用户 `share_urls`；`content_urls` 仍是需要 Agent 鉴权的产物下载路径。失败摘要也稳定包含空数组或 `null` 形式的产物、路由、渠道和尺寸字段，便于自动化客户端按同一模板汇报；尺寸门禁失败属于“上游已生成但本地验收失败”，失败摘要会保留已生成产物的 `artifact_ids`、`content_urls`、`absolute_content_urls` 和 `image_dimensions`。失败摘要还包含 `route_decision`、`transport_error_kind`、`retry_after_ms`、`cooldown_until`、`cooldown_target`、`retryable`、`dimension_check_failed`、`expected_dimensions`、`actual_dimensions`、`agent_diagnostics_checked`、`agent_diagnostics_found`、`agent_diagnostics_unavailable_reason`、`agent_diagnostics_http_status` 和 `next_action`；渠道与路由诊断优先读取 `error.diagnostics`，没有对应诊断字段时才回退到响应里的 `execution`。Agent JSON 失败时脚本会按幂等键只读查询 Agent 状态；若命中，会把 `request_id`、`channel_request_mode`、`channel_request_mode_fallback_applied`、`route_decision`、`selected_channel_id`、`upstream_host`、`transport_error_kind` 合并进首次失败摘要，并输出 `agent_failure_diagnostics`。回答耗时问题时优先读取 `summary.elapsed_ms`；需要区分脚本等待和上游耗时时读取 `summary.elapsed_breakdown`。
 
 生成脚本参数：
@@ -229,6 +229,7 @@ GET /api/agent/capabilities
 透明代理或 fake DNS 环境下，如果已确认上游域名会解析到 RFC 2544 `198.18.0.0/15`，部署管理员可以设置
 `OPENAI_TUN_MODE=synthetic-dns`（旧变量 `OPENAI_ALLOW_SYNTHETIC_DNS_IPS=true` 仍兼容）。默认模式为
 `disabled`，只对非字面量上游主机名的合成 DNS 结果生效；普通私网、回环、链路本地和字面量保留地址仍被拒绝，也不会放宽跨域图片 URL 的 SSRF 校验。配置变更需重启服务，主动模型探测和实际图片请求会使用同一策略。使用本地 Docker 部署时可执行 `npm run deploy:local -- --tun` 自动加载对应 Compose 覆盖文件。
+
 - `model_limits.gpt-image-2.max_edge`：最大单边像素，当前为 `3840`。
 - `model_limits.gpt-image-2.max_pixels`：最大总像素，当前为 `8294400`。
 - `model_limits.gpt-image-2.edge_multiple`：宽高必须是该值的倍数，当前为 `16`。
@@ -236,6 +237,7 @@ GET /api/agent/capabilities
 - `model_limits.gpt-image-2.min_pixels`：最小总像素，当前为 `655360`。
 - `model_limits.gpt-image-2.recommended_presets`：推荐尺寸预设。
 - `model_limits.gpt-image-2.large_image_risk`：大尺寸请求的长耗时风险说明，当前适用于 `max_edge>2048`。
+- `model_limits.provider_defined`：所有自定义/provider-defined 模型共享的本地资源预算；当前单边最大 `8192` 像素、总像素最大 `67,108,864`（64MP）。即使使用 `force_request` 也不能绕过该预算。
 - `agent_streaming.generate.mode`：当前为 `non_streaming_only`。
 - `agent_streaming.edit.mode`：当前为 `non_streaming_only`。
 - `agent_streaming.upstream_sse`：Agent generate/edit 内部消费上游 SSE 的能力，客户端响应仍是最终 `AgentImageResponse` JSON。
@@ -281,7 +283,7 @@ GET /api/agent/models?probe=true
 
 模型目录端点的声明读取与主动探测使用不同强度的保护：不论是否配置 Agent token，声明读取都不触发出站请求且只返回脱敏渠道信息；配置 Bearer token 时机器客户端使用 `Authorization: Bearer <token>`，仅配置页面访问码时使用 `X-App-Password-Hash`，已登录工作台也可以使用有效的 `gptImageAccess` cookie（即使同时配置了 Agent token）。`probe=true` 必须通过 Agent 或已验证页面会话鉴权，才会由服务端向已配置渠道请求 `/models`；它可能产生出站网络请求但不触发图片生成或计费。
 
-响应中的 `known_models[]` 是模型目录条目，`channels[]` 是按渠道分组的探测结果。`channels[].declared_models` 和 `channels[].model_allowlist_configured` 表示管理员配置的渠道白名单，`channels[].model_allowlist_state` 进一步区分 `unrestricted`、`restricted` 和同一渠道下凭证混用的 `mixed` 状态；`channels[].models` 表示当前声明或探测后可用的模型。混合状态不能被当作完整白名单，否则会错误隐藏未限制凭证可用的通用模型。白名单渠道探测为空时也不会恢复通用模型选项。只有 `status=verified_usable` 的条目表示该次探测确认渠道返回了模型；`status=declared` 只表示项目或配置声明，不能当作真实可用性证明。`size_policy` 为 `legacy_allowlist` 时使用旧版四种尺寸白名单；`provider_defined` 时使用 `auto` 或正整数 `WIDTHxHEIGHT` 语法，最终能力仍由渠道 provider manifest 和上游响应决定。
+响应中的 `known_models[]` 是模型目录条目，`channels[]` 是按渠道分组的探测结果。`channels[].declared_models` 和 `channels[].model_allowlist_configured` 表示管理员配置的渠道白名单，`channels[].model_allowlist_state` 进一步区分 `unrestricted`、`restricted`、凭证混用的 `mixed` 和匿名脱敏兼容标记 `redacted`；`channels[].models` 表示当前声明或探测后可用的模型。`mixed` 和 `redacted` 不能被当作完整白名单，否则会错误隐藏未限制凭证可用的通用模型。未鉴权目录会清除具体白名单字段；当同一匿名渠道同时包含受限和不受限凭证时保留 `redacted`，仅用于让客户端保留通用模型选项。白名单渠道探测为空时也不会恢复通用模型选项。只有 `status=verified_usable` 的条目表示该次探测确认渠道返回了模型；`status=declared` 只表示项目或配置声明，不能当作真实可用性证明。`size_policy` 为 `legacy_allowlist` 时使用旧版四种尺寸白名单；`provider_defined` 时使用 `auto` 或正整数 `WIDTHxHEIGHT` 语法，最终能力仍由渠道 provider manifest 和上游响应决定。
 
 新增探针、诊断或健康摘要时，先把机器契约放进 capabilities、OpenAPI 或明确的 Agent 只读端点，再让脚本消费这些字段；不要让脚本自己拼 page API、runtime API 和 Agent API 的边界逻辑。
 
@@ -602,7 +604,7 @@ node "<skill-root>/scripts/diagnose-channel-health.mjs" --base-url https://your-
     },
     "diagnostics_note": {
         "code": "no_matching_logs_in_retention_window",
-        "message": "没有匹配到页面请求日志；诊断只覆盖最近 300 条本地应用日志，日志可能已被保留条数淘汰、被日志级别过滤，或本地日志文件被清理。",
+        "message": "matched_log_count=0 表示当前保留窗口内没有匹配日志；可能已被保留条数淘汰、被 APP_LOG_LEVEL 过滤，或本地日志文件被清理。",
         "retention": {
             "storage": "bounded_local_jsonl",
             "max_entries": 300,

@@ -87,7 +87,13 @@ if (options.help) {
 
 try {
     validateUpstreamStreamingOptions(options);
-    options.size = assertValidImageSizeForModel(options.size, options.model || DEFAULT_MODEL, '--size');
+    options.size = assertValidImageSizeForModel(
+        options.size,
+        options.modelExplicit || options.dryRun || (!options.allowBillable && !contractCheck)
+            ? options.model || DEFAULT_MODEL
+            : undefined,
+        '--size'
+    );
 } catch (error) {
     console.error(errorMessage(error));
     printUsage();

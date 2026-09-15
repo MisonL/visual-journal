@@ -22,6 +22,7 @@ import {
     parseImageSizeValue,
     parseRetryAfterValue,
     readCapabilitiesImageTransportTimeoutMs,
+    readCapabilitiesDefaultImageModel,
     readConfiguredPositiveInteger,
     readMaxImageEdge,
     readOptionValue,
@@ -30,7 +31,6 @@ import {
     resolveAgentToken,
     resolveConfiguredDefaultImageModel,
     resolvePlaygroundBaseUrl,
-    resolveCapabilitiesDefaultImageModel,
     resolveSameOriginUrl,
     sleep,
     validateAgentGenerateRequestAgainstCapabilities
@@ -152,11 +152,12 @@ if (isNonBillableDryRun(options, contractCheck)) {
     let remoteCheck;
     try {
         remoteCheck = options.checkRemote ? await runRemotePlanningCheck() : buildSkippedRemotePlanningCheck();
-        if (!options.modelExplicit && remoteCheck.default_model) {
+        if (!options.modelExplicit) {
+            const resolvedModel = remoteCheck.default_model || requestBody.model || DEFAULT_MODEL;
             requestBody = {
                 ...requestBody,
-                model: remoteCheck.default_model,
-                size: assertValidImageSizeForModel(requestBody.size, remoteCheck.default_model, '--size')
+                model: resolvedModel,
+                size: assertValidImageSizeForModel(requestBody.size, resolvedModel, '--size')
             };
         }
     } catch (error) {
@@ -187,8 +188,9 @@ if (isNonBillableDryRun(options, contractCheck)) {
 const capabilities = await readCapabilitiesOrExit();
 try {
     applyCapabilitiesRuntimeValues(capabilities);
-    if (!options.modelExplicit && typeof capabilities?.defaults?.model === 'string') {
-        const resolvedModel = resolveCapabilitiesDefaultImageModel(capabilities, DEFAULT_MODEL);
+    const resolvedCapabilitiesModel = readCapabilitiesDefaultImageModel(capabilities);
+    if (!options.modelExplicit) {
+        const resolvedModel = resolvedCapabilitiesModel || requestBody.model || DEFAULT_MODEL;
         requestBody = {
             ...requestBody,
             model: resolvedModel,
@@ -402,7 +404,7 @@ function buildRequestBody(promptValue, parsed) {
             prompt: promptValue || 'contract check',
             model,
             n: readConfiguredPositiveInteger(parsed.n, '--n', 1),
-            size: assertValidImageSizeForModel(parsed.size, model, '--size'),
+            size: assertValidImageSizeForModel(parsed.size, parsed.modelExplicit ? model : undefined, '--size'),
             quality: parsed.quality,
             output_format: normalizeOutputFormat(parsed.format),
             ...(readOutputCompression(parsed) !== undefined
@@ -416,11 +418,12 @@ function buildRequestBody(promptValue, parsed) {
 
 function buildDryRunRequestBody(parsed) {
     const model = parsed.model || DEFAULT_MODEL;
+    const validationModel = parsed.modelExplicit || !parsed.checkRemote ? model : undefined;
     const body = addUpstreamStrategyFields(
         {
             model,
             n: readConfiguredPositiveInteger(parsed.n, '--n', 1),
-            size: assertValidImageSizeForModel(parsed.size, model, '--size'),
+            size: assertValidImageSizeForModel(parsed.size, validationModel, '--size'),
             quality: parsed.quality,
             output_format: normalizeOutputFormat(parsed.format),
             ...(readOutputCompression(parsed) !== undefined
@@ -591,14 +594,15 @@ function buildDryRunVerificationScope(remoteCheck = buildSkippedRemotePlanningCh
 async function runRemotePlanningCheck() {
     const capabilities = await readCapabilities();
     const runtime = await readRuntimeCapabilities();
+    const defaultModel = readCapabilitiesDefaultImageModel(capabilities) ?? null;
     return {
         remote_capabilities_verified: true,
         runtime_capacity_verified: true,
         auth_verified: true,
-        default_model: resolveCapabilitiesDefaultImageModel(capabilities),
+        default_model: defaultModel,
         capabilities: {
             endpoint: AGENT_ENDPOINTS.capabilities,
-            default_model: resolveCapabilitiesDefaultImageModel(capabilities),
+            default_model: defaultModel,
             orchestration_supported: capabilities?.orchestration?.supported === true,
             orchestration_endpoint: capabilities?.orchestration?.endpoint || null,
             page_sse_supported: capabilities?.agent_streaming?.page_sse?.supported === true,

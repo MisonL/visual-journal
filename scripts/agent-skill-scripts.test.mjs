@@ -152,11 +152,9 @@ describe('Agent skill script argument validation', () => {
                 response.end();
             },
             async (baseUrl) => {
-                const result = await runSkillScriptAsync(
-                    'list-models.mjs',
-                    ['--json', '--base-url', baseUrl],
-                    { GPT_IMAGE_AGENT_TOKEN: 'redirect-secret' }
-                );
+                const result = await runSkillScriptAsync('list-models.mjs', ['--json', '--base-url', baseUrl], {
+                    GPT_IMAGE_AGENT_TOKEN: 'redirect-secret'
+                });
                 assert.equal(result.status, 1);
                 assert.match(result.stderr, /拒绝跨源重定向/);
                 assert.deepEqual(received, [{ url: '/api/agent/models', authorization: 'Bearer redirect-secret' }]);
@@ -1503,6 +1501,39 @@ describe('Agent skill script argument validation', () => {
                     requests.map((item) => `${item.method} ${item.url}`),
                     ['GET /api/agent/capabilities', 'GET /api/runtime-capabilities']
                 );
+            }
+        );
+    });
+
+    it('keeps the configured model when remote capabilities omit a valid default', async () => {
+        await withServer(
+            (request, response) => {
+                if (request.url === '/api/agent/capabilities') {
+                    response.writeHead(200, { 'content-type': 'application/json' });
+                    response.end(JSON.stringify(agentGenerateCapabilities({ defaults: {} })));
+                    return;
+                }
+                if (request.url === '/api/runtime-capabilities') {
+                    response.writeHead(200, { 'content-type': 'application/json' });
+                    response.end(JSON.stringify({ streamingBatch: {}, channelRouting: {} }));
+                    return;
+                }
+                response.writeHead(404, { 'content-type': 'application/json' });
+                response.end(JSON.stringify({ error: 'missing' }));
+            },
+            async (baseUrl) => {
+                const result = await runSkillScriptAsync(
+                    'generate-image.mjs',
+                    ['--check-remote', '--size', '1024x1024', 'prompt'],
+                    { GPT_IMAGE_PLAYGROUND_URL: baseUrl, OPENAI_IMAGE_MODEL: 'custom-image-model' }
+                );
+
+                assert.equal(result.status, 0);
+                assert.equal(result.stderr.trim(), '');
+                const body = JSON.parse(result.stdout);
+                assert.equal(body.request.model, 'custom-image-model');
+                assert.equal(body.verification_scope.remote_check.default_model, null);
+                assert.equal(body.verification_scope.remote_check.capabilities.default_model, null);
             }
         );
     });
@@ -3859,6 +3890,18 @@ describe('Agent skill script argument validation', () => {
         assert.match(result.stderr, /--dimension-check 需要 --size 为 WIDTHxHEIGHT/);
     });
 
+    it('keeps dry-run size validation strict even when allow-billable is present', () => {
+        const result = runSkillScript(
+            'edit-image.mjs',
+            ['--dry-run', '--allow-billable', '--size', '2048x2048', '/tmp/source.png', 'prompt'],
+            { OPENAI_IMAGE_MODEL: 'gpt-image-1' }
+        );
+
+        assert.equal(result.status, 2);
+        assert.equal(result.stdout.trim(), '');
+        assert.match(result.stderr, /--size 对模型 gpt-image-1 无效/);
+    });
+
     it('routes GPT2Image-compatible edit options through page SSE dry-runs', () => {
         const result = runSkillScript('edit-image.mjs', [
             '--format',
@@ -4315,6 +4358,53 @@ describe('Agent skill script argument validation', () => {
                     );
                     assert.match(editRequestBody, /name="size"\r?\n\r?\n3072x2048/);
                     assert.match(editRequestBody, /name="image_0"; filename="source\.png"/);
+                }
+            );
+        } finally {
+            rmSync(tempRoot, { recursive: true, force: true });
+        }
+    });
+
+    it('uses the remote default before validating an omitted-model edit size', async () => {
+        const tempRoot = mkdtempSync(join(tmpdir(), 'gpt-image-edit-remote-default-override-'));
+        try {
+            const imagePath = join(tempRoot, 'source.png');
+            writeFileSync(imagePath, fakePngBuffer(2, 1));
+            const requests = [];
+            let editRequestBody = '';
+
+            await withServer(
+                async (request, response) => {
+                    requests.push({ method: request.method, url: request.url });
+                    if (request.url === '/api/agent/capabilities') {
+                        response.writeHead(200, { 'content-type': 'application/json' });
+                        response.end(JSON.stringify(agentGenerateCapabilities({ defaults: { model: 'gpt-image-2' } })));
+                        return;
+                    }
+                    if (request.url === '/api/agent/images/edit') {
+                        editRequestBody = await readRequestText(request);
+                        response.writeHead(200, { 'content-type': 'application/json' });
+                        response.end(JSON.stringify({ request_id: 'remote-default-edit-request', images: [] }));
+                        return;
+                    }
+                    response.writeHead(404, { 'content-type': 'application/json' });
+                    response.end(JSON.stringify({ error: 'missing' }));
+                },
+                async (baseUrl) => {
+                    const result = await runSkillScriptAsync(
+                        'edit-image.mjs',
+                        ['--allow-billable', '--agent', '--size', '2048x2048', imagePath, 'prompt'],
+                        { GPT_IMAGE_PLAYGROUND_URL: baseUrl, OPENAI_IMAGE_MODEL: 'gpt-image-1' }
+                    );
+
+                    assert.equal(result.status, 0);
+                    assert.equal(result.stderr.trim(), '');
+                    assert.deepEqual(
+                        requests.map((item) => `${item.method} ${item.url}`),
+                        ['GET /api/agent/capabilities', 'POST /api/agent/images/edit']
+                    );
+                    assert.match(editRequestBody, /name="model"\r?\n\r?\ngpt-image-2/);
+                    assert.match(editRequestBody, /name="size"\r?\n\r?\n2048x2048/);
                 }
             );
         } finally {
@@ -6380,6 +6470,51 @@ describe('Agent skill script argument validation', () => {
         }
     });
 
+    it('uses the remote default before validating an omitted-model batch size', async () => {
+        const tempRoot = mkdtempSync(join(tmpdir(), 'gpt-image-batch-remote-default-override-'));
+        try {
+            const inputPath = join(tempRoot, 'tasks.jsonl');
+            const manifestPath = join(tempRoot, 'manifest.jsonl');
+            writeFileSync(
+                inputPath,
+                JSON.stringify({ id: 'remote-default-override', prompt: 'prompt', size: '2048x2048' })
+            );
+            let requestBody;
+            await withServer(
+                async (request, response) => {
+                    if (request.url === '/api/agent/capabilities') {
+                        response.writeHead(200, { 'content-type': 'application/json' });
+                        response.end(JSON.stringify(agentGenerateCapabilities({ defaults: { model: 'gpt-image-2' } })));
+                        return;
+                    }
+                    if (request.url === '/api/agent/image-requests') {
+                        requestBody = JSON.parse(await readRequestText(request));
+                        response.writeHead(200, { 'content-type': 'application/json' });
+                        response.end(JSON.stringify({ request_id: 'remote-default-override-request', images: [] }));
+                        return;
+                    }
+                    response.writeHead(404, { 'content-type': 'application/json' });
+                    response.end(JSON.stringify({ error: 'missing' }));
+                },
+                async (baseUrl) => {
+                    const result = await runSkillScriptAsync(
+                        'batch-images.mjs',
+                        ['--allow-billable', '--input', inputPath, '--manifest', manifestPath],
+                        { GPT_IMAGE_PLAYGROUND_URL: baseUrl, OPENAI_IMAGE_MODEL: 'gpt-image-1' }
+                    );
+
+                    assert.equal(result.status, 0);
+                    assert.equal(result.stderr.trim(), '');
+                    assert.equal(requestBody.model, 'gpt-image-2');
+                    assert.equal(requestBody.size, '2048x2048');
+                    assert.equal(JSON.parse(result.stdout).results[0].status, 'succeeded');
+                }
+            );
+        } finally {
+            rmSync(tempRoot, { recursive: true, force: true });
+        }
+    });
+
     it('revalidates size after applying a server-declared default model', async () => {
         let imageRequests = 0;
         await withServer(
@@ -6403,6 +6538,107 @@ describe('Agent skill script argument validation', () => {
                 assert.equal(result.status, 2);
                 assert.match(result.stderr, /gpt-image-1.*1024x1024/);
                 assert.equal(imageRequests, 0);
+            }
+        );
+    });
+
+    it('passes force_request through batch Agent JSON edit requests', async () => {
+        const tempRoot = mkdtempSync(join(tmpdir(), 'gpt-image-batch-agent-force-request-'));
+        try {
+            const inputPath = join(tempRoot, 'tasks.jsonl');
+            const manifestPath = join(tempRoot, 'manifest.jsonl');
+            const imagePath = join(tempRoot, 'source.png');
+            writeFileSync(imagePath, fakePngBuffer(2, 1));
+            writeFileSync(
+                inputPath,
+                JSON.stringify({
+                    id: 'agent-force-request',
+                    mode: 'edit',
+                    prompt: 'prompt',
+                    image_path: imagePath,
+                    model: 'gpt-image-2',
+                    size: '512x512',
+                    transport: 'agent_json',
+                    force_request: true
+                })
+            );
+            let editRequestBody = '';
+            await withServer(
+                async (request, response) => {
+                    if (request.url === '/api/agent/capabilities') {
+                        response.writeHead(200, { 'content-type': 'application/json' });
+                        response.end(JSON.stringify(agentGenerateCapabilities()));
+                        return;
+                    }
+                    if (request.url === '/api/agent/images/edit') {
+                        editRequestBody = await readRequestText(request);
+                        response.writeHead(200, { 'content-type': 'application/json' });
+                        response.end(JSON.stringify({ request_id: 'agent-force-request-result', images: [] }));
+                        return;
+                    }
+                    response.writeHead(404, { 'content-type': 'application/json' });
+                    response.end(JSON.stringify({ error: 'missing' }));
+                },
+                async (baseUrl) => {
+                    const result = await runSkillScriptAsync(
+                        'batch-images.mjs',
+                        ['--allow-billable', '--input', inputPath, '--manifest', manifestPath],
+                        { GPT_IMAGE_PLAYGROUND_URL: baseUrl }
+                    );
+
+                    assert.equal(result.status, 0);
+                    assert.equal(result.stderr.trim(), '');
+                    assert.match(editRequestBody, /name="force_request"\r?\n\r?\ntrue/);
+                    assert.match(editRequestBody, /name="model"\r?\n\r?\ngpt-image-2/);
+                    assert.equal(JSON.parse(result.stdout).results[0].status, 'succeeded');
+                }
+            );
+        } finally {
+            rmSync(tempRoot, { recursive: true, force: true });
+        }
+    });
+
+    it('uses the remote default before validating an omitted-model generate size', async () => {
+        let requestBody;
+        await withServer(
+            async (request, response) => {
+                if (request.url === '/api/agent/capabilities') {
+                    response.writeHead(200, { 'content-type': 'application/json' });
+                    response.end(JSON.stringify(agentGenerateCapabilities({ defaults: { model: 'gpt-image-2' } })));
+                    return;
+                }
+                if (request.url === '/api/agent/image-requests') {
+                    requestBody = JSON.parse(await readRequestText(request));
+                    response.writeHead(202, { 'content-type': 'application/json' });
+                    response.end(
+                        JSON.stringify({
+                            job: {
+                                id: 'remote-default-generate-job',
+                                result_url: '/api/agent/jobs/remote-default-generate-job/result'
+                            }
+                        })
+                    );
+                    return;
+                }
+                if (request.url === '/api/agent/jobs/remote-default-generate-job/result') {
+                    response.writeHead(200, { 'content-type': 'application/json' });
+                    response.end(JSON.stringify({ request_id: 'remote-default-generate-request', images: [] }));
+                    return;
+                }
+                response.writeHead(404, { 'content-type': 'application/json' });
+                response.end(JSON.stringify({ error: 'missing' }));
+            },
+            async (baseUrl) => {
+                const result = await runSkillScriptAsync(
+                    'generate-image.mjs',
+                    ['--allow-billable', '--size', '2048x2048', 'prompt'],
+                    { GPT_IMAGE_PLAYGROUND_URL: baseUrl, OPENAI_IMAGE_MODEL: 'gpt-image-1' }
+                );
+
+                assert.equal(result.status, 0);
+                assert.equal(result.stderr.trim(), '');
+                assert.equal(requestBody.model, 'gpt-image-2');
+                assert.equal(requestBody.size, '2048x2048');
             }
         );
     });
@@ -7231,6 +7467,34 @@ describe('Agent skill script argument validation', () => {
         }
     });
 
+    it('explains high-resolution edit routing in batch dry-runs', () => {
+        const tempRoot = mkdtempSync(join(tmpdir(), 'gpt-image-batch-high-resolution-edit-guidance-'));
+        try {
+            const inputPath = join(tempRoot, 'tasks.jsonl');
+            writeFileSync(
+                inputPath,
+                JSON.stringify({
+                    id: 'high-resolution-edit',
+                    mode: 'edit',
+                    prompt: 'prompt',
+                    image_path: 'source.png',
+                    size: '3072x2048'
+                })
+            );
+
+            const result = runSkillScript('batch-images.mjs', ['--input', inputPath]);
+
+            assert.equal(result.status, 0);
+            assert.equal(result.stderr.trim(), '');
+            const body = JSON.parse(result.stdout);
+            assert.equal(body.tasks[0].routing.transport, 'page_sse');
+            assert.equal(body.tasks[0].routing.strength, 'default');
+            assert.match(body.tasks[0].routing.reason, /High-resolution edit/);
+        } finally {
+            rmSync(tempRoot, { recursive: true, force: true });
+        }
+    });
+
     it('fails batch dimension-check mismatches and invalid size parameters', async () => {
         const tempRoot = mkdtempSync(join(tmpdir(), 'gpt-image-batch-'));
         try {
@@ -7641,6 +7905,7 @@ describe('Agent skill script argument validation', () => {
                     mode: 'edit',
                     prompt: 'prompt',
                     image_paths: ['/tmp/source-a.png', '/tmp/source-b.png'],
+                    force_request: true,
                     transport: 'agent_json'
                 })
             );
@@ -7654,6 +7919,7 @@ describe('Agent skill script argument validation', () => {
             assert.equal(agentEditTransportBody.tasks[0].endpoint, '/api/agent/images/edit');
             assert.equal(agentEditTransportBody.tasks[0].routing.transport, 'agent_json');
             assert.deepEqual(agentEditTransportBody.tasks[0].request.image_fields, ['image_0', 'image_1']);
+            assert.equal(agentEditTransportBody.tasks[0].request.force_request, true);
 
             const agentEditNonStreamInputPath = join(tempRoot, 'agent-edit-non-stream.jsonl');
             writeFileSync(
@@ -7896,7 +8162,7 @@ describe('Agent skill script argument validation', () => {
             });
 
             assert.equal(result.status, 2);
-            assert.match(result.stderr, /legacy-default\.size 对自定义模型 gpt-image-1 无效/);
+            assert.match(result.stderr, /legacy-default\.size 对模型 gpt-image-1 无效/);
             assert.equal(result.stdout.trim(), '');
         } finally {
             rmSync(tempRoot, { recursive: true, force: true });

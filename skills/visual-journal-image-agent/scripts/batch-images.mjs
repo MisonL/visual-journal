@@ -89,6 +89,9 @@ const PAGE_ADVANCED_FIELDS = [
     'forceRequest',
     'sse_log_path'
 ];
+const PAGE_SSE_ONLY_FIELDS = PAGE_ADVANCED_FIELDS.filter(
+    (field) => field !== 'force_request' && field !== 'forceRequest'
+);
 const EDIT_ONLY_FIELDS = ['image_path', 'image_paths', 'mask_path'];
 const BOOLEAN_ROUTING_FIELDS = ['page_sse', 'complex_ui', 'long_image', 'resume_or_recover'];
 const THINKING_VALUES = new Set(['minimal', 'none', 'low', 'medium', 'high', 'xhigh']);
@@ -345,7 +348,7 @@ function normalizeTask(raw, index, parsedOptions) {
         throw new Error(`${id} 缺少 prompt。`);
     }
     validateTaskFields(raw, id, mode);
-    validateTaskSize(raw, id, mode, parsedOptions.dimensionCheck);
+    validateTaskSize(raw, id, mode, parsedOptions.dimensionCheck, parsedOptions.allowBillable && !parsedOptions.dryRun);
     validateTaskRoutingFields(raw, id, mode);
     if (mode === 'edit') validateEditImages(raw, id);
     return {
@@ -374,9 +377,13 @@ function normalizeIdempotencyKey(value, orderedPrefix, index, id) {
     return value;
 }
 
-function validateTaskSize(raw, id, mode, dimensionCheck) {
+function validateTaskSize(raw, id, mode, dimensionCheck, deferModelResolution = false) {
     if (raw.size !== undefined) {
-        assertValidImageSizeForModel(raw.size, raw.model || DEFAULT_MODEL, `${id}.size`);
+        assertValidImageSizeForModel(
+            raw.size,
+            raw.model || (deferModelResolution ? undefined : DEFAULT_MODEL),
+            `${id}.size`
+        );
     }
     if (!dimensionCheck) return;
     const size = raw.size || (mode === 'generate' ? '1024x1024' : undefined);
@@ -475,7 +482,7 @@ function validateRoutingControlFields(raw, id, mode) {
             throw new Error(`${id}.transport=agent_json 不能同时设置 page_sse=true。`);
         }
         if (raw.transport === 'agent_json') {
-            const unsupportedFields = PAGE_ADVANCED_FIELDS.filter((field) => hasOwn(raw, field));
+            const unsupportedFields = PAGE_SSE_ONLY_FIELDS.filter((field) => hasOwn(raw, field));
             if (unsupportedFields.length > 0) {
                 throw new Error(
                     `${id}.transport=agent_json 不支持页面 SSE 高级字段：${unsupportedFields.join(', ')}。`
@@ -604,7 +611,7 @@ function validateTaskRoutingFields(raw, id, mode) {
 }
 
 function hasPageAdvancedFields(raw) {
-    return PAGE_ADVANCED_FIELDS.some((field) => hasOwn(raw, field));
+    return PAGE_SSE_ONLY_FIELDS.some((field) => hasOwn(raw, field));
 }
 
 function hasOwn(value, key) {
@@ -1095,11 +1102,11 @@ function buildPageSseRoutingReason(task) {
     if (task.mode === 'edit' && hasPageAdvancedFields(task.raw)) {
         return 'GPT2Image-compatible edit options require page form-data SSE; Agent JSON edit does not accept those fields.';
     }
-    if (task.mode === 'edit') {
-        return 'Default WebP edit output uses page form-data SSE; Agent JSON edit has a fixed output contract.';
-    }
     if (task.mode === 'edit' && readTaskMaxEdge(task) > 2048) {
         return 'High-resolution edit defaults to page form-data SSE; fall back explicitly after diagnosis if streaming has issues.';
+    }
+    if (task.mode === 'edit') {
+        return 'Default WebP edit output uses page form-data SSE; Agent JSON edit has a fixed output contract.';
     }
     return 'Large or complex batch image tasks should use page form-data SSE for observability and recovery.';
 }
@@ -1129,6 +1136,8 @@ function buildAgentEditRequestPreview(raw) {
     }
     if (!raw.model) preview.model = DEFAULT_MODEL;
     if (!raw.response_mode) preview.response_mode = 'path';
+    const forceRequest = readForceRequest(raw, String(raw.id || 'edit'));
+    if (forceRequest !== undefined) preview.force_request = forceRequest;
     preview.image_fields = readEditImagePaths(raw, String(raw.id || 'edit')).map((_, index) => `image_${index}`);
     if (raw.mask_path) preview.mask = 'provided';
     return preview;
@@ -1185,8 +1194,8 @@ function shouldUsePageSseForTask(task) {
         return true;
     if (task.raw.sse_log_path) return true;
     if (task.mode === 'edit' && hasPageAdvancedFields(task.raw)) return true;
-    if (task.mode === 'edit') return true;
     if (task.mode === 'edit' && readTaskMaxEdge(task) > 2048) return true;
+    if (task.mode === 'edit') return true;
     return false;
 }
 
@@ -1538,6 +1547,8 @@ function appendEditFields(formData, raw, model = DEFAULT_MODEL) {
     }
     if (!raw.model) formData.append('model', model);
     if (!raw.response_mode) formData.append('response_mode', 'path');
+    const forceRequest = readForceRequest(raw, String(raw.id || 'edit'));
+    if (forceRequest !== undefined) formData.append('force_request', String(forceRequest));
     readEditImagePaths(raw, String(raw.id || 'edit')).forEach((filePath, index) =>
         appendFile(formData, `image_${index}`, filePath)
     );

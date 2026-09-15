@@ -263,7 +263,11 @@ test('normalizes configured base URLs and rejects malformed idempotency keys', (
     assert.equal(internals.resolveBaseUrl('http://127.0.0.1:4783'), 'http://127.0.0.1:4783');
     assert.equal(internals.resolveBaseUrl('http://[::1]:4783'), 'http://[::1]:4783');
     assert.equal(internals.resolveBaseUrl('http://[::ffff:7f00:1]:4783'), 'http://[::ffff:7f00:1]:4783');
-    assert.equal(internals.resolveBaseUrl('http://[::ffff:0:7f00:1]:4783'), 'http://[::ffff:0:7f00:1]:4783');
+    assert.throws(
+        () => internals.resolveBaseUrl('http://[::ffff:0:7f00:1]:4783'),
+        /HTTP 时仅允许 localhost 或回环地址/
+    );
+    assert.throws(() => internals.resolveBaseUrl('http://[::7f00:1]:4783'), /HTTP 时仅允许 localhost 或回环地址/);
     assert.throws(
         () => internals.resolveBaseUrl('http://remote.example/workbench'),
         /HTTP 时仅允许 localhost 或回环地址/

@@ -277,12 +277,6 @@ function readEmbeddedIpv4(hextets) {
     if (hextets.slice(0, 5).every((value) => value === 0) && hextets[5] === 0xffff) {
         return ipv4FromHextets(hextets[6], hextets[7]);
     }
-    if (hextets.slice(0, 4).every((value) => value === 0) && hextets[4] === 0xffff && hextets[5] === 0) {
-        return ipv4FromHextets(hextets[6], hextets[7]);
-    }
-    if (hextets.slice(0, 6).every((value) => value === 0)) {
-        return ipv4FromHextets(hextets[6], hextets[7]);
-    }
     return undefined;
 }
 
