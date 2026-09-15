@@ -7,7 +7,7 @@ import {
     type NumericRange
 } from './image-upstream-profile';
 import { isLoopbackIpAddress } from './network-security';
-import { validateGptImage2Size } from './size-utils';
+import { validateGptImage2Size, validatePositiveIntegerImageSize } from './size-utils';
 import { promisify } from 'node:util';
 import { inflate } from 'node:zlib';
 import type OpenAI from 'openai';
@@ -231,8 +231,11 @@ export function readSize(
     }
     if ((isGptImage2 || isProviderDefinedModel) && value !== 'auto' && options.forceRequest) {
         const { width, height } = parseFixedSizeValue(value);
-        if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width <= 0 || height <= 0) {
-            throw new RequestValidationError(`${field} 对 ${model} 无效：宽度和高度必须是正整数。`);
+        const validation = validatePositiveIntegerImageSize(width, height);
+        if (!validation.valid) {
+            throw new RequestValidationError(
+                `${field} 对 ${model} 无效：${isPositiveIntegerDimensionValidation(validation) ? '宽度和高度必须是正整数。' : validation.reason}`
+            );
         }
     }
     if (
@@ -242,8 +245,11 @@ export function readSize(
         (isProviderDefinedModel || profile.gptImage2.sizePolicy === 'positive-integer')
     ) {
         const { width, height } = parseFixedSizeValue(value);
-        if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width <= 0 || height <= 0) {
-            throw new RequestValidationError(`${field} 对 ${model} 无效：宽度和高度必须是正整数。`);
+        const validation = validatePositiveIntegerImageSize(width, height);
+        if (!validation.valid) {
+            throw new RequestValidationError(
+                `${field} 对 ${model} 无效：${isPositiveIntegerDimensionValidation(validation) ? '宽度和高度必须是正整数。' : validation.reason}`
+            );
         }
     }
     if (
@@ -264,6 +270,12 @@ export function readSize(
 function parseFixedSizeValue(value: string): { width: number; height: number } {
     const match = /^(\d+)x(\d+)$/.exec(value);
     return { width: Number(match?.[1]), height: Number(match?.[2]) };
+}
+
+function isPositiveIntegerDimensionValidation(
+    validation: ReturnType<typeof validatePositiveIntegerImageSize>
+): boolean {
+    return !validation.valid && ['positive', 'whole', 'safeInteger'].some((key) => validation.reasonKey.endsWith(key));
 }
 
 export function readOutputCompression(formData: FormData, outputFormat: ValidOutputFormat): number | undefined {

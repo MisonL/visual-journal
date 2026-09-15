@@ -85,6 +85,16 @@ describe('image size numeric boundaries', () => {
         if (!result.valid) assert.equal(result.reasonKey, 'sizeError.whole');
     });
 
+    it('bounds provider-defined dimensions by edge and total pixels', () => {
+        assert.equal(validatePositiveIntegerImageSize(4096, 4096).valid, true);
+
+        const oversizedEdge = validatePositiveIntegerImageSize(8193, 1);
+        assert.equal(oversizedEdge.valid, false);
+        if (!oversizedEdge.valid) assert.equal(oversizedEdge.reasonKey, 'sizeError.maxEdge');
+
+        assert.equal(validatePositiveIntegerImageSize(8192, 8192).valid, true);
+    });
+
     it('preserves decimal input for validation instead of silently truncating it', () => {
         assert.equal(readImageSizeNumberInput('12.5'), 12.5);
         assert.equal(readImageSizeNumberInput('1e3'), 1000);

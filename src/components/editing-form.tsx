@@ -397,6 +397,10 @@ export function EditingForm({
     initialAdvancedTab = 'output'
 }: EditingFormProps) {
     const { locale, t } = useI18n();
+    const selectableModelOptions = React.useMemo(
+        () => Array.from(new Set([editModel, ...(modelOptions ?? DEFAULT_MODEL_OPTIONS)])),
+        [editModel, modelOptions]
+    );
     const [firstImagePreviewUrl, setFirstImagePreviewUrl] = React.useState<string | null>(null);
 
     const isGptImage2 = isGptImage2Model(editModel);
@@ -1457,7 +1461,7 @@ export function EditingForm({
                                                     <SelectValue placeholder={t('form.selectModel')} />
                                                 </SelectTrigger>
                                                 <SelectContent>
-                                                    {(modelOptions ?? DEFAULT_MODEL_OPTIONS).map((modelId) => (
+                                                    {selectableModelOptions.map((modelId) => (
                                                         <SelectItem key={modelId} value={modelId}>
                                                             {modelId}
                                                         </SelectItem>

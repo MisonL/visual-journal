@@ -72,6 +72,7 @@ type GenerationRenderOptions = {
     partialImages?: PartialImagesCount;
     streamMode?: React.ComponentProps<typeof GenerationForm>['streamMode'];
     model?: React.ComponentProps<typeof GenerationForm>['model'];
+    modelOptions?: readonly string[];
     size?: React.ComponentProps<typeof GenerationForm>['size'];
     customWidth?: number;
     customHeight?: number;
@@ -96,6 +97,7 @@ function createGenerationFormProps(options: GenerationRenderOptions = {}): React
         clientPasswordHash: null,
         onOpenPasswordDialog: noop,
         model: options.model ?? 'gpt-image-2',
+        modelOptions: options.modelOptions,
         setModel: noop,
         prompt: options.prompt ?? '用户真实提示词 A',
         setPrompt: noop,
@@ -518,6 +520,17 @@ describe('GenerationForm advanced groups', () => {
 
         assert.match(html, /model-select/);
         assert.doesNotMatch(html, /image-backend-select/);
+    });
+
+    it('keeps a restored model visible when the current directory does not list it', () => {
+        const html = renderGenerationForm({
+            defaultAdvancedOpen: true,
+            defaultAdvancedTab: 'model',
+            model: 'restored-provider-model',
+            modelOptions: ['gpt-image-2']
+        });
+
+        assert.match(html, /restored-provider-model/);
     });
 
     it('keeps OpenAI-compatible generation controls within its upstream profile', () => {

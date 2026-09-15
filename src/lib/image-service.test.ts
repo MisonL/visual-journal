@@ -108,6 +108,7 @@ describe('fixed image dimensions', () => {
         assert.equal(readRequestedImageDimensions('auto'), undefined);
         assert.equal(readRequestedImageDimensions('1024'), undefined);
         assert.equal(readRequestedImageDimensions(null), undefined);
+        assert.throws(() => readRequestedImageDimensions('100000x100000'), /请求尺寸无效.*单边最大值/);
     });
 
     it('resizes a same-aspect image to the requested dimensions without changing its aspect ratio', async () => {
@@ -193,6 +194,17 @@ describe('fixed image dimensions', () => {
                 assert.deepEqual(error.actual, { width: 1, height: 1 });
                 return true;
             }
+        );
+    });
+
+    it('rejects oversized normalization targets before invoking sharp', async () => {
+        await assert.rejects(
+            () =>
+                normalizeImageBuffer(Buffer.from(PNG_BASE64, 'base64'), 'webp', {
+                    width: 100000,
+                    height: 100000
+                }),
+            /请求尺寸无效.*单边最大值/
         );
     });
 });

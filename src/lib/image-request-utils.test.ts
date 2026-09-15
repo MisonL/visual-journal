@@ -342,6 +342,19 @@ describe('Matsca upstream image parameter compatibility', () => {
         assert.throws(() => readSize(nonPositive, 'size', '1024x1024', 'custom-image-model'), /正整数/);
     });
 
+    it('keeps the local resource budget active when force_request is enabled', () => {
+        const formData = new FormData();
+        formData.append('size', '100000x100000');
+
+        assert.throws(
+            () =>
+                readSize(formData, 'size', '1024x1024', 'custom-image-model', IMAGE_UPSTREAM_PROFILES.matsca, {
+                    forceRequest: true
+                }),
+            /单边最大值/
+        );
+    });
+
     it('uses the Matsca single upload limit for masks too', () => {
         const formData = new FormData();
         formData.append('mask', new File([Buffer.alloc(10 * 1024 * 1024 + 1)], 'mask.png', { type: 'image/png' }));

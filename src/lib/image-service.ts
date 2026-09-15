@@ -1,9 +1,15 @@
 import { readAcceptedImageTaskDetails } from './accepted-image-task';
 import { detectImageFormat, readImageDimensions, writeFileAtomic } from './agent-file-utils';
-import { createImageResult, type StorageMode, type ValidOutputFormat } from './image-request-utils';
+import {
+    createImageResult,
+    RequestValidationError,
+    type StorageMode,
+    type ValidOutputFormat
+} from './image-request-utils';
 import type { UpstreamRequestHeaders } from './image-upstream-profile';
 import { downloadSameOriginImageAsBase64 } from './image-url-result';
 import { createBatchId, createImageFilename, resolveImageOutputDir } from './server-runtime';
+import { validatePositiveIntegerImageSize } from './size-utils';
 import fs from 'fs/promises';
 import type OpenAI from 'openai';
 import path from 'path';
@@ -105,7 +111,10 @@ export function readRequestedImageDimensions(size: string | null | undefined): R
     if (!match) return undefined;
     const width = Number(match[1]);
     const height = Number(match[2]);
-    if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width <= 0 || height <= 0) return undefined;
+    const validation = validatePositiveIntegerImageSize(width, height);
+    if (!validation.valid) {
+        throw new RequestValidationError(`请求尺寸无效：${validation.reason}`, 422);
+    }
     return { width, height };
 }
 
@@ -292,6 +301,12 @@ export async function normalizeImageBuffer(
 ): Promise<Buffer> {
     const detectedFormat = detectImageFormat(buffer, outputFormat);
     const sourceDimensions = readImageDimensions(buffer);
+    if (targetDimensions) {
+        const targetValidation = validatePositiveIntegerImageSize(targetDimensions.width, targetDimensions.height);
+        if (!targetValidation.valid) {
+            throw new RequestValidationError(`请求尺寸无效：${targetValidation.reason}`, 422);
+        }
+    }
     const aspectRatioDrift = targetDimensions
         ? readAspectRatioDriftPixels(sourceDimensions, targetDimensions)
         : undefined;

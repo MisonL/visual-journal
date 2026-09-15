@@ -4,7 +4,6 @@ import { renderInClientDom } from '@/test-utils/react-dom';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { describe, it } from 'node:test';
-import * as React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 function LocaleMetadataProbe() {

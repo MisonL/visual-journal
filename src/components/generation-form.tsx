@@ -399,6 +399,10 @@ export function GenerationForm({
     defaultAdvancedTab = 'output'
 }: GenerationFormProps) {
     const { locale, t } = useI18n();
+    const selectableModelOptions = React.useMemo(
+        () => Array.from(new Set([model, ...(modelOptions ?? DEFAULT_MODEL_OPTIONS)])),
+        [model, modelOptions]
+    );
     const showCompression = outputFormat === 'jpeg' || outputFormat === 'webp';
     const supportsCustomSize = supportsCustomImageSize(model);
     const usesPositiveIntegerCustomSize = shouldUsePositiveIntegerImageSize(model, upstreamProfile);
@@ -1021,7 +1025,7 @@ export function GenerationForm({
                                                     <SelectValue placeholder={t('form.selectModel')} />
                                                 </SelectTrigger>
                                                 <SelectContent>
-                                                    {(modelOptions ?? DEFAULT_MODEL_OPTIONS).map((modelId) => (
+                                                    {selectableModelOptions.map((modelId) => (
                                                         <SelectItem key={modelId} value={modelId}>
                                                             {modelId}
                                                         </SelectItem>

@@ -30,6 +30,7 @@ type RenderOptions = {
     editResponsesModel?: string;
     editPrompt?: string;
     editModel?: React.ComponentProps<typeof EditingForm>['editModel'];
+    modelOptions?: readonly string[];
     editSize?: React.ComponentProps<typeof EditingForm>['editSize'];
     editCustomWidth?: number;
     editCustomHeight?: number;
@@ -94,6 +95,7 @@ function createEditingFormProps({
     editResponsesModel = '',
     editPrompt = '',
     editModel = 'gpt-image-2',
+    modelOptions,
     editSize = 'auto',
     editCustomWidth = 1024,
     editCustomHeight = 1024,
@@ -124,6 +126,7 @@ function createEditingFormProps({
         clientPasswordHash: null,
         onOpenPasswordDialog: noop,
         editModel,
+        modelOptions,
         setEditModel: noop,
         imageFiles,
         sourceImagePreviewUrls: [],
@@ -401,6 +404,17 @@ describe('EditingForm advanced upstream controls', () => {
         assert.match(html, /edit-model-select/);
         assert.match(html, /gpt-image-2 始终以高保真方式处理参考图/);
         assert.doesNotMatch(html, /edit-image-backend-select/);
+    });
+
+    it('keeps a restored edit model visible when the current directory does not list it', () => {
+        const html = renderEditingForm({
+            backend: 'server-default',
+            advancedTab: 'model',
+            editModel: 'restored-provider-model',
+            modelOptions: ['gpt-image-2']
+        });
+
+        assert.match(html, /restored-provider-model/);
     });
 
     it('renders edit stream controls only in the professional stream tab', () => {

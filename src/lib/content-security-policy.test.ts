@@ -16,4 +16,13 @@ describe('buildContentSecurityPolicy', () => {
         assert.equal(buildContentSecurityPolicy('nonce-value').includes("'unsafe-eval'"), false);
         assert.equal(buildContentSecurityPolicy('nonce-value', true).includes("'unsafe-eval'"), true);
     });
+
+    it('only allows localhost image and connection sources in development', () => {
+        const productionPolicy = buildContentSecurityPolicy('nonce-value');
+        const developmentPolicy = buildContentSecurityPolicy('nonce-value', true);
+
+        assert.equal(productionPolicy.includes('http://localhost:*'), false);
+        assert.match(developmentPolicy, /img-src[^;]*http:\/\/localhost:\*/);
+        assert.match(developmentPolicy, /connect-src[^;]*http:\/\/localhost:\*/);
+    });
 });

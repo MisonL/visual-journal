@@ -24,6 +24,8 @@ describe('page state regressions', () => {
         assert.match(source, /response\.status === 401 \? t\('error\.unauthorized'\)/);
         assert.match(source, /createErrorNotice\(t\('error\.clearHistory'\)\)/);
         assert.match(source, /function getLocalizedImageRequestError/);
+        assert.match(source, /expected: expected \|\| t\('error\.unknownTargetSize'\)/);
+        assert.match(source, /actual: actual \|\| t\('error\.unknownActualSize'\)/);
         assert.match(source, /t\('error\.invalidRequest'\)/);
         assert.match(source, /t\('error\.networkRequest'\)/);
         assert.match(source, /new ApiRequestError\(t\('error\.streaming'\)\)/);
@@ -44,6 +46,27 @@ describe('page state regressions', () => {
             source,
             /setEditModel\(\(current\) => \(nextOptions\.includes\(current\) \? current : preferredModel\)\)/
         );
+    });
+
+    it('does not replace an explicit model selection with the runtime default', async () => {
+        const source = await readFile(new URL('./page.tsx', import.meta.url), 'utf8');
+
+        assert.match(source, /genModelExplicitSelectionRef\.current/);
+        assert.match(source, /editModelExplicitSelectionRef\.current/);
+        assert.match(source, /if \(!genModelExplicitSelectionRef\.current\) \{[\s\S]*?setGenModel/);
+        assert.match(source, /if \(!editModelExplicitSelectionRef\.current\) \{[\s\S]*?setEditModel/);
+        assert.match(source, /setModel=\{handleGenModelChange\}/);
+        assert.match(source, /setEditModel=\{handleEditModelChange\}/);
+        assert.match(source, /onModelChange=\{mode === 'generate' \? handleGenModelChange : handleEditModelChange\}/);
+    });
+
+    it('does not re-add an incompatible runtime default after model directory resolution', async () => {
+        const source = await readFile(new URL('./page.tsx', import.meta.url), 'utf8');
+
+        assert.match(source, /modelDirectoryResolvedRef/);
+        assert.match(source, /modelDirectoryOptionsRef\.current\.includes\(defaultModel\)/);
+        assert.match(source, /modelDirectoryResolvedRef\.current = true/);
+        assert.match(source, /modelDirectoryOptionsRef\.current = nextOptions/);
     });
 
     it('only probes channels after the page access code has been verified', async () => {

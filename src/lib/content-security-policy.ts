@@ -2,6 +2,7 @@ export function buildContentSecurityPolicy(nonce: string | undefined, developmen
     const normalizedNonce = nonce?.trim();
     const scriptNonce = normalizedNonce ? " 'nonce-" + normalizedNonce + "' 'strict-dynamic'" : '';
     const developmentEval = development ? " 'unsafe-eval'" : '';
+    const developmentLocalSources = development ? ' http://localhost:*' : '';
     return (
         "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; " +
         "script-src 'self'" +
@@ -9,7 +10,11 @@ export function buildContentSecurityPolicy(nonce: string | undefined, developmen
         developmentEval +
         '; ' +
         "style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; " +
-        "img-src 'self' data: blob: https: http://localhost:*; font-src 'self' data:; " +
-        "connect-src 'self' https: http://localhost:* ws: wss:; frame-src 'self'"
+        "img-src 'self' data: blob: https:" +
+        developmentLocalSources +
+        "; font-src 'self' data:; " +
+        "connect-src 'self' https:" +
+        developmentLocalSources +
+        " ws: wss:; frame-src 'self'"
     );
 }

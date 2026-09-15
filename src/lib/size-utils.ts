@@ -12,6 +12,12 @@ export const GPT_IMAGE_2_MAX_EDGE = 3840;
 export const GPT_IMAGE_2_EDGE_MULTIPLE = 16;
 export const GPT_IMAGE_2_MAX_ASPECT = 3;
 
+// Provider-defined dimensions are intentionally broader than the OpenAI
+// compatibility profile, but still need a local resource ceiling before they
+// reach image decoders or sharp.resize().
+export const PROVIDER_DEFINED_MAX_EDGE = 8192;
+export const PROVIDER_DEFINED_MAX_PIXELS = 67_108_864;
+
 export function isProviderDefinedCustomModel(model: GptImageModel): boolean {
     return !(GPT_IMAGE_MODELS as readonly string[]).includes(model);
 }
@@ -118,6 +124,22 @@ export function validatePositiveIntegerImageSize(width: number, height: number):
             valid: false,
             reason: '宽度和高度超出可精确处理的整数范围。',
             reasonKey: 'sizeError.safeInteger'
+        };
+    }
+    if (width > PROVIDER_DEFINED_MAX_EDGE || height > PROVIDER_DEFINED_MAX_EDGE) {
+        return {
+            valid: false,
+            reason: `单边最大值为 ${PROVIDER_DEFINED_MAX_EDGE}px。`,
+            reasonKey: 'sizeError.maxEdge',
+            values: { max: PROVIDER_DEFINED_MAX_EDGE }
+        };
+    }
+    if (width * height > PROVIDER_DEFINED_MAX_PIXELS) {
+        return {
+            valid: false,
+            reason: `总像素不能超过 ${PROVIDER_DEFINED_MAX_PIXELS.toLocaleString()}。`,
+            reasonKey: 'sizeError.maxPixels',
+            values: { max: PROVIDER_DEFINED_MAX_PIXELS.toLocaleString() }
         };
     }
     return { valid: true };

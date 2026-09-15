@@ -562,6 +562,8 @@ const messages: Record<Locale, Record<string, string>> = {
         'error.partialImagesOutOfRange': '当前后端只允许设置 {min} 到 {max} 张预览图。',
         'error.streaming': '流式生成出错。',
         'error.imageDimensionMismatch': '生成图片尺寸与请求不一致：请求 {expected}，实际 {actual}。',
+        'error.unknownTargetSize': '目标尺寸',
+        'error.unknownActualSize': '未知尺寸',
         'error.networkRequest': '无法连接图片服务，请检查网络后重试。',
         'error.apiFailedWithAdvice': '{message}。建议：{advice}',
         'error.adviceAuth': '检查 API Key、访问码或渠道权限。',
@@ -1209,6 +1211,8 @@ const messages: Record<Locale, Record<string, string>> = {
         'error.streaming': 'Streaming error occurred',
         'error.imageDimensionMismatch':
             'The generated image size does not match the request: requested {expected}, actual {actual}.',
+        'error.unknownTargetSize': 'Target size',
+        'error.unknownActualSize': 'Unknown size',
         'error.networkRequest': 'Could not reach the image service. Check the network and try again.',
         'error.apiFailedWithAdvice': '{message}. Recommendation: {advice}',
         'error.adviceAuth': 'Check the API Key, access code, or channel permissions.',

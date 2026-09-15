@@ -468,8 +468,8 @@ function getLocalizedImageDimensionMismatchError(
     actual: string | null | undefined
 ): string {
     return t('error.imageDimensionMismatch', {
-        expected: expected || '目标尺寸',
-        actual: actual || '未知尺寸'
+        expected: expected || t('error.unknownTargetSize'),
+        actual: actual || t('error.unknownActualSize')
     });
 }
 
@@ -609,6 +609,8 @@ export default function HomePage() {
     const [modelOptions, setModelOptions] = React.useState<string[]>([...DEFAULT_MODEL_OPTIONS]);
     const modelProbeKeysRef = React.useRef<Set<string>>(new Set());
     const modelProbeGenerationRef = React.useRef(0);
+    const modelDirectoryResolvedRef = React.useRef(false);
+    const modelDirectoryOptionsRef = React.useRef<string[]>([...DEFAULT_MODEL_OPTIONS]);
     const [isRuntimeCapabilitiesLoading, setIsRuntimeCapabilitiesLoading] = React.useState(true);
     const [loadedWebuiImageRetentionState, setLoadedWebuiImageRetentionState] =
         React.useState<LoadedWebuiImageRetentionState | null>(null);
@@ -712,6 +714,22 @@ export default function HomePage() {
     const [genForceWeb, setGenForceWeb] = React.useState(false);
 
     const [editModel, setEditModel] = React.useState<EditingFormData['model']>('gpt-image-2');
+    const genModelExplicitSelectionRef = React.useRef(false);
+    const editModelExplicitSelectionRef = React.useRef(false);
+    const handleGenModelChange = React.useCallback<React.Dispatch<React.SetStateAction<GenerationFormData['model']>>>(
+        (nextModel) => {
+            genModelExplicitSelectionRef.current = true;
+            setGenModel(nextModel);
+        },
+        []
+    );
+    const handleEditModelChange = React.useCallback<React.Dispatch<React.SetStateAction<EditingFormData['model']>>>(
+        (nextModel) => {
+            editModelExplicitSelectionRef.current = true;
+            setEditModel(nextModel);
+        },
+        []
+    );
 
     // 流式状态，由生成和编辑模式共用。
     const [streamMode, setStreamMode] = React.useState<ImageStreamMode>('auto');
@@ -1462,9 +1480,16 @@ export default function HomePage() {
             }
             setRuntimeCapabilities(data);
             const defaultModel = data.imageModel?.defaultModel?.trim();
-            if (defaultModel) {
-                setGenModel((current) => (current === 'gpt-image-2' ? defaultModel : current));
-                setEditModel((current) => (current === 'gpt-image-2' ? defaultModel : current));
+            const defaultModelIsCompatible =
+                defaultModel !== undefined &&
+                (!modelDirectoryResolvedRef.current || modelDirectoryOptionsRef.current.includes(defaultModel));
+            if (defaultModel && defaultModelIsCompatible) {
+                if (!genModelExplicitSelectionRef.current) {
+                    setGenModel((current) => (current === 'gpt-image-2' ? defaultModel : current));
+                }
+                if (!editModelExplicitSelectionRef.current) {
+                    setEditModel((current) => (current === 'gpt-image-2' ? defaultModel : current));
+                }
                 setModelOptions((current) => Array.from(new Set([defaultModel, ...current])));
             }
             return data;
@@ -1489,6 +1514,8 @@ export default function HomePage() {
         const generation = modelProbeGenerationRef.current + 1;
         modelProbeGenerationRef.current = generation;
         if (modelProbeKeysRef.current.has(probeKey)) return;
+        modelDirectoryResolvedRef.current = false;
+        modelDirectoryOptionsRef.current = [...DEFAULT_MODEL_OPTIONS];
         const controller = new AbortController();
         const isCurrentProbe = () => !controller.signal.aborted && modelProbeGenerationRef.current === generation;
         const fetchModelDirectory = async (endpoint: string) => {
@@ -1535,6 +1562,8 @@ export default function HomePage() {
                 }) => {
                     if (!isCurrentProbe()) return;
                     const nextOptions = resolveModelDirectoryOptions(directory);
+                    modelDirectoryResolvedRef.current = true;
+                    modelDirectoryOptionsRef.current = nextOptions;
                     if (nextOptions.length > 0) setModelOptions(nextOptions);
                     const defaultModel =
                         typeof directory.default_model === 'string' ? directory.default_model.trim() : '';
@@ -2712,7 +2741,7 @@ export default function HomePage() {
             const restoredFields = [t('reuse.fieldPrompt')];
 
             setGenPrompt(trimmedPrompt || normalizedFormData.prompt);
-            setGenModel(normalizedFormData.model);
+            handleGenModelChange(normalizedFormData.model);
             setGenSize(normalizedFormData.size);
             setGenCustomWidth(normalizedFormData.customWidth);
             setGenCustomHeight(normalizedFormData.customHeight);
@@ -2762,7 +2791,7 @@ export default function HomePage() {
             setMode('generate');
             return normalizedFormData;
         },
-        [allowResponsesHistoryRoute, locale, t]
+        [allowResponsesHistoryRoute, handleGenModelChange, locale, t]
     );
 
     function handleCreateVariant() {
@@ -3731,7 +3760,7 @@ export default function HomePage() {
         const sizeSelection = readHistorySizeSelection(item, nextModel);
         const restoredFields = [t('reuse.fieldReferenceImage'), t('reuse.fieldPrompt')];
         setEditPrompt(item.prompt);
-        setEditModel(nextModel);
+        handleEditModelChange(nextModel);
         setEditSize(sizeSelection.size);
         if (typeof sizeSelection.customWidth === 'number') {
             setEditCustomWidth(sizeSelection.customWidth);
@@ -4164,7 +4193,7 @@ export default function HomePage() {
                                         onOpenPasswordDialog={handleOpenPasswordDialog}
                                         model={genModel}
                                         modelOptions={modelOptions}
-                                        setModel={setGenModel}
+                                        setModel={handleGenModelChange}
                                         prompt={genPrompt}
                                         setPrompt={setGenPrompt}
                                         batchPromptText={genBatchPromptText}
@@ -4244,7 +4273,7 @@ export default function HomePage() {
                                         onOpenPasswordDialog={handleOpenPasswordDialog}
                                         editModel={editModel}
                                         modelOptions={modelOptions}
-                                        setEditModel={setEditModel}
+                                        setEditModel={handleEditModelChange}
                                         imageFiles={editImageFiles}
                                         sourceImagePreviewUrls={editSourceImagePreviewUrls}
                                         setImageFiles={setEditImageFiles}
@@ -4372,7 +4401,7 @@ export default function HomePage() {
                                     onQualityChange={mode === 'generate' ? setGenQuality : setEditQuality}
                                     model={mode === 'generate' ? genModel : editModel}
                                     modelOptions={modelOptions}
-                                    onModelChange={mode === 'generate' ? setGenModel : setEditModel}
+                                    onModelChange={mode === 'generate' ? handleGenModelChange : handleEditModelChange}
                                     size={mode === 'generate' ? genSize : editSize}
                                     customWidth={mode === 'generate' ? genCustomWidth : editCustomWidth}
                                     customHeight={mode === 'generate' ? genCustomHeight : editCustomHeight}

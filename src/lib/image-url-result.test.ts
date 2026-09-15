@@ -94,15 +94,7 @@ describe('downloadSameOriginImageAsBase64', () => {
         );
     });
 
-    it('allows explicit synthetic DNS addresses for public hostnames only when enabled', async () => {
-        globalThis.fetch = async (_url, init) => {
-            assert.ok(init && 'dispatcher' in init && init.dispatcher);
-            return new Response(Buffer.from('png'), {
-                status: 200,
-                headers: { 'content-type': 'image/png' }
-            });
-        };
-
+    it('rejects synthetic DNS addresses for cross-origin result URLs', async () => {
         const input = {
             imageUrl: 'https://cdn.example.com/result.png',
             apiBaseUrl: 'https://api.example.test/v1',
@@ -111,8 +103,27 @@ describe('downloadSameOriginImageAsBase64', () => {
             ]) as unknown as typeof import('node:dns/promises').lookup
         };
         await assert.rejects(() => downloadSameOriginImageAsBase64(input), /禁止的本地或内网/);
-        const result = await downloadSameOriginImageAsBase64({ ...input, allowSyntheticDns: true });
-        assert.equal(result, Buffer.from('png').toString('base64'));
+    });
+
+    it('does not inherit deployment synthetic DNS mode for remote result URLs', async () => {
+        const previousTunMode = process.env.OPENAI_TUN_MODE;
+        process.env.OPENAI_TUN_MODE = 'synthetic-dns';
+        try {
+            await assert.rejects(
+                () =>
+                    downloadSameOriginImageAsBase64({
+                        imageUrl: 'https://cdn.example.com/result.png',
+                        apiBaseUrl: 'https://api.example.test/v1',
+                        lookup: (async () => [
+                            { address: '198.18.0.1', family: 4 }
+                        ]) as unknown as typeof import('node:dns/promises').lookup
+                    }),
+                /禁止的本地或内网/
+            );
+        } finally {
+            if (previousTunMode === undefined) delete process.env.OPENAI_TUN_MODE;
+            else process.env.OPENAI_TUN_MODE = previousTunMode;
+        }
     });
 
     it('honors an already-aborted request before performing DNS resolution', async () => {

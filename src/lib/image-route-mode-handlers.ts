@@ -206,6 +206,23 @@ function readBooleanAlias(formData: FormData, ...fields: string[]): boolean | un
     throw new RequestValidationError(`${fields[0]} 必须是 true 或 false。`, 400);
 }
 
+function assertBackendSpecificFields(formData: FormData, imageBackend: ImageBackend): void {
+    const hasThinking = formData.has('thinking');
+    const hasPromptOptimization = formData.has('promptOptimization') || formData.has('prompt_optimization');
+    const hasForceWeb = formData.has('force_web') || formData.has('forceWeb');
+    const fields: Record<string, string> = {};
+    if (imageBackend !== 'responses-image-generation') {
+        if (hasThinking) fields.thinking = '仅适用于 image_backend=responses-image-generation';
+        if (hasPromptOptimization) fields.promptOptimization = '仅适用于 image_backend=responses-image-generation';
+    }
+    if (imageBackend === 'responses-image-generation' && hasForceWeb) {
+        fields.force_web = '仅适用于 image_backend=images-api';
+    }
+    if (Object.keys(fields).length > 0) {
+        throw new RequestValidationError('请求包含与图片后端不兼容的字段。', 422, { fields });
+    }
+}
+
 function readThinking(formData: FormData): string | undefined {
     const value = readStringField(formData, 'thinking');
     if (!value) return undefined;
@@ -445,6 +462,7 @@ async function createGenerateStreamResponse(
 }
 
 export async function handleGenerateImageMode(input: CommonModeInput): Promise<ImageModeResult> {
+    assertBackendSpecificFields(input.formData, input.imageBackend);
     const options = readGenerateOptions(input);
     if (input.imageBackend === 'responses-image-generation') {
         if (input.streamEnabled) {
@@ -587,6 +605,7 @@ async function createEditStreamResponse(input: CommonModeInput, options: EditOpt
 }
 
 export async function handleEditImageMode(input: CommonModeInput): Promise<ImageModeResult> {
+    assertBackendSpecificFields(input.formData, input.imageBackend);
     const options = readEditOptions(input);
     await assertMaskCompatibility(options.maskFile, options.imageFiles);
     if (input.imageBackend === 'responses-image-generation') {
