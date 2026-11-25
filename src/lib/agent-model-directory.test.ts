@@ -240,18 +240,26 @@ describe('agent model directory', () => {
             directory.known_models.find((entry) => entry.id === 'gpt-image-2-1k')?.size_policy,
             'provider_defined'
         );
-        assert.equal(
-            directory.known_models.find((entry) => entry.id === 'gpt-image-1')?.size_policy,
-            'legacy_allowlist'
-        );
     });
 
-    it('derives the configured legacy default model size policy', () => {
+    it('no longer declares the retired gpt-image-1 family in the offered catalog', () => {
+        const directory = buildAgentModelDirectory({});
+        for (const retired of ['gpt-image-1', 'gpt-image-1.5', 'gpt-image-1-mini']) {
+            assert.equal(
+                directory.known_models.find((entry) => entry.id === retired),
+                undefined,
+                `${retired} 不应再出现在对外模型清单里`
+            );
+        }
+    });
+
+    it('keeps legacy size policy when a retired model is explicitly set as default', () => {
         const directory = buildAgentModelDirectory({ OPENAI_IMAGE_MODEL: 'gpt-image-1' });
         const entry = directory.known_models[0];
         assert.equal(entry?.id, 'gpt-image-1');
         assert.equal(entry?.source, 'project_default');
-        assert.equal(entry?.custom, false);
+        // 不再是项目声明模型，作为显式默认值按 configured 条目处理，但族表仍给出 legacy 尺寸语义。
+        assert.equal(entry?.custom, true);
         assert.equal(entry?.status, 'declared');
         assert.equal(entry?.size_policy, 'legacy_allowlist');
         assert.equal(entry?.strict_dimensions, false);

@@ -83,11 +83,10 @@ export const AGENT_DEFAULT_RECOVERY_INTERVAL_MS = 30 * 1000;
 export const AGENT_PAGE_REQUEST_DIAGNOSTICS_NO_MATCH_HINT =
     'matched_log_count=0 表示当前保留窗口内没有匹配日志；可能已被保留条数淘汰、被 APP_LOG_LEVEL 过滤，或本地日志文件被清理。';
 
-// 只接受 legacy 尺寸白名单（auto 与三种预设尺寸）的旧模型。
-export const AGENT_LEGACY_MODELS = ['gpt-image-1', 'gpt-image-1-mini', 'gpt-image-1.5'] as const;
-// 项目声明的模型清单：legacy 白名单模型，加上走 provider-defined 尺寸语义的 gpt-image-2 系与 gpt-image-2.5 系。
+// 项目声明的模型清单：旧的 gpt-image-1 系（gpt-image-1 / -1.5 / -mini）已关停或
+// 临近年末关停，不再对外声明为可选模型；它们仍保留在成本表、历史尺寸回填与族表里，
+// 以便读取旧记录和校验历史请求。这里只提供仍在售的 gpt-image 2 系、2.5 系与 2.6 系。
 export const AGENT_MODELS = [
-    ...AGENT_LEGACY_MODELS,
     'gpt-image-2',
     'gpt-image-2-1k',
     'gpt-image-2.5',

@@ -25,6 +25,7 @@
 
 ### 变更
 
+- 已关停或即将关停的 `gpt-image-1`、`gpt-image-1.5`、`gpt-image-1-mini` 从对外模型清单移除：不再出现在 `/api/agent/models` 的 `known_models[]`、工作台模型下拉兜底列表与 OpenAPI `models` 枚举中。成本费率、模型族归属、生命周期提示与历史尺寸回填仍保留，用于读取和统计旧记录；显式把旧型号设为 `OPENAI_IMAGE_MODEL` 时仍按其 legacy 尺寸语义处理。
 - 统一 `gpt-image-2` 为兼容性默认图片模型；`OPENAI_IMAGE_MODEL`、渠道模型声明和 provider-defined 尺寸继续支持自定义模型。
 - 新增 `gpt-image-2.5`、`gpt-image-2.5-flare`、`gpt-image-2.5-sunburst` 三个 OpenAI 官方图像模型：按官方文档与 `gpt-image-2` 相同的尺寸约束（16 倍数、1:3~~3:1、单边 ≤3840、总像素 655,360~~8,294,400）处理，并新增 `xhigh`、`max` 两个质量档；默认模型选项、成本面板与历史尺寸回填同步纳入，官方定价与 `gpt-image-2` 的 token 三档一致；`gpt-image-2-1k` 仍是项目内 1K 别名。
 - 渠道合成为多个渠道共用时，只有当所有渠道都声明 `upstream_controlled` 才整体放宽输出尺寸策略；只要有一个渠道保证按请求尺寸出图，合并结果仍保持严格契约，避免被宽松渠道带偏。

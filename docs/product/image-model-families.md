@@ -105,7 +105,7 @@
 | `openai-gpt-image-2.6`                            | `gpt-image-2.6-flare`、`gpt-image-2.6-sunburst`                  | `openai_compatible` |
 | `openai-gpt-image-2.5`                            | `gpt-image-2.5`、`gpt-image-2.5-flare`、`gpt-image-2.5-sunburst` | `openai_compatible` |
 | `openai-gpt-image-2`                              | `gpt-image-2`、`gpt-image-2-1k`                                  | `openai_compatible` |
-| `openai-gpt-image-1`                              | `gpt-image-1`、`gpt-image-1-mini`、`gpt-image-1.5`               | `legacy_allowlist`  |
+| `openai-gpt-image-1`                              | `gpt-image-1`、`gpt-image-1-mini`、`gpt-image-1.5`（已停售，仅保留用于历史记录与成本计算） | `legacy_allowlist`  |
 | `openai-dall-e`                                   | `dall-e-*`                                                       | `legacy_allowlist`  |
 | `google-gemini-image`                             | `gemini-*-image`、`gemini-nano-banana-*`、`nano-banana*`         | `provider_defined`  |
 | `google-imagen`                                   | `imagen-*`                                                       | `provider_defined`  |
@@ -146,6 +146,8 @@
 | `dall-e-2` / `dall-e-3` | 已关停 | 2026-05-12 |
 
 `/api/agent/models` 的 `known_models[]` 会带出 `lifecycle` 字段，调用方可以据此提示迁移，而不是等到上游报错。
+
+已经关停或即将关停的型号（`gpt-image-1`、`gpt-image-1.5`、`gpt-image-1-mini`）已从对外模型清单中移除，不再出现在 `known_models[]`、工作台模型下拉和 OpenAPI 枚举里；它们的成本费率、族归属与历史尺寸回填仍然保留，只用于读取旧记录。
 
 ## 刻意没有登记的内容
 
