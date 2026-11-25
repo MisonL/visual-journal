@@ -39,9 +39,14 @@
 - Agent、页面 API、运行时能力、OpenAPI 与 Skill 脚本的错误分类、鉴权、请求方式和渠道路由契约保持一致。
 - 新增渠道能力矩阵的用户确认门禁；四种方式固定实测，默认仅启用 `images-non-stream`，其他通过方式必须显式选择。
 
+### 修复
+
+- 修复 `npm audit` 报出的 10 项依赖漏洞（2 high / 8 moderate）：`brace-expansion` 兼容层由 5.0.9 升到 5.1.0 修复 3 项递归/重写 DoS；`happy-dom` 由 `^20.10.6` 升到 `^21.0.4` 修复 3 项（import alias 逃逸、iframe/link SSRF、cookie 域伪造）；`minimatch` 通过定点 `overrides` 把两个开发者工具（`@trivago/prettier-plugin-sort-imports`、`@typescript-eslint/typescript-estree`）的 9.x/10.x 顶到 11.0.9，修掉 globparts 放大 DoS。定点而非全局覆盖，避免把 eslint 使用的 `minimatch@3` 一并升级破坏 lint。
+
 ### 测试
 
 - 补齐模型目录、CSP、远程图片安全、模型路由、请求错误分类、脚本参数和 DSH 插件回归测试。
+- 依赖修复后复跑全套校验：`npm audit` 归零、`npm ci` 可解析、1731 条测试 1730 pass / 1 skip / 0 fail、lint / format / 脚本语法 / 生产构建 / `docker build --check` / actionlint / 4 套 Compose 配置全部通过。
 
 ## [2.3.0] - 2026-08-13
 
