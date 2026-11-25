@@ -96,7 +96,7 @@ describe('buildAgentRequestDiagnostics', () => {
                         selected_channel_id: 'default',
                         upstream_host: 'example.test',
                         request_headers: {
-                            user_agent_effective: 'visual-journal/2.3.0',
+                            user_agent_effective: 'visual-journal/2.4.0',
                             has_extra_headers: false,
                             allowed_header_names: ['user-agent'],
                             configured_header_names: []

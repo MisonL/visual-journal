@@ -6,6 +6,10 @@
 
 ## [未发布]
 
+暂无变更。
+
+## [2.4.0] - 2026-11-25
+
 ### 新增
 
 - 增加模型目录 API、渠道模型白名单和 `/models` 主动探测，工作台与 Agent Skill 可读取配置声明并按渠道能力选择模型。
@@ -238,7 +242,8 @@
 - 支持基于 OpenAI 兼容 Images API 的本地图片生成和编辑流程。
 - 增加 Docker 部署支持和多平台启动脚本。
 
-[未发布]: https://github.com/MisonL/visual-journal/compare/v2.3.0...HEAD
+[未发布]: https://github.com/MisonL/visual-journal/compare/v2.4.0...HEAD
+[2.4.0]: https://github.com/MisonL/visual-journal/compare/v2.3.0...v2.4.0
 [2.3.0]: https://github.com/MisonL/visual-journal/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/MisonL/visual-journal/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/MisonL/visual-journal/compare/v2.0.0...v2.1.0

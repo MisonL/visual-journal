@@ -18,7 +18,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 const DEFAULT_HEADER_SUMMARY = {
-    user_agent_effective: 'visual-journal/2.3.0',
+    user_agent_effective: 'visual-journal/2.4.0',
     has_extra_headers: false,
     allowed_header_names: ['user-agent', 'x-app-id', 'x-app-secret'],
     configured_header_names: []

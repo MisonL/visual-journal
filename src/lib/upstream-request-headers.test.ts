@@ -10,7 +10,7 @@ import { describe, it } from 'node:test';
 describe('upstream request headers', () => {
     it('uses a stable product User-Agent by default', () => {
         assert.deepEqual(buildDefaultUpstreamHeaders({}), {
-            'User-Agent': 'visual-journal/2.3.0'
+            'User-Agent': 'visual-journal/2.4.0'
         });
     });
 
