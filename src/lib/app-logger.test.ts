@@ -304,7 +304,7 @@ describe('appLogger', { concurrency: false }, () => {
     it('normalizes structured fields when hydrating persisted jsonl log entries', async () => {
         const logFile = path.join(
             os.tmpdir(),
-            'gpt-image-playground-app-logs',
+            'visual-journal-app-logs',
             process.env[testLogFileNameKey] ?? 'app-test.log.jsonl'
         );
         fs.mkdirSync(path.dirname(logFile), { recursive: true });

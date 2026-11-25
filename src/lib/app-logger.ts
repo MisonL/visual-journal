@@ -17,7 +17,7 @@ export {
 const LOG_LEVELS = ['debug', 'info', 'warn', 'error'] as const;
 const LOG_DIR = path.join(/* turbopackIgnore: true */ process.cwd(), 'generated-images', '.app-logs');
 const DEFAULT_LOG_FILE_NAME = 'app.log.jsonl';
-const TEST_LOG_DIR = path.join(os.tmpdir(), 'gpt-image-playground-app-logs');
+const TEST_LOG_DIR = path.join(os.tmpdir(), 'visual-journal-app-logs');
 const TEST_LOG_FILE_NAME = 'app-test.log.jsonl';
 const testLogFileNameOverrideEnv = 'APP_LOG_TEST_FILE_NAME';
 const testConsoleMirrorEnv = 'APP_LOG_TEST_CONSOLE_MIRROR';
