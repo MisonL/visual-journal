@@ -431,3 +431,73 @@ function makePngChunk(type: string, data: Buffer): Buffer {
 }
 
 const PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAAC0lEQVR4nGNk+A8AAwMBASp7pYQAAAAASUVORK5CYII=';
+
+describe('model family size and quality gating', () => {
+    function sizeForm(size: string): FormData {
+        const formData = new FormData();
+        formData.set('size', size);
+        return formData;
+    }
+
+    it('keeps the legacy allowlist for gpt-image-1 models', () => {
+        assert.equal(readSize(sizeForm('1536x1024'), 'size', '1024x1024', 'gpt-image-1'), '1536x1024');
+        assert.throws(() => readSize(sizeForm('1001x1001'), 'size', '1024x1024', 'gpt-image-1'), /1024x1024/);
+    });
+
+    it('applies the official dall-e allowlist instead of the gpt-image-1 one', () => {
+        assert.equal(readSize(sizeForm('1792x1024'), 'size', '1024x1024', 'dall-e-3'), '1792x1024');
+        assert.throws(() => readSize(sizeForm('1536x1024'), 'size', '1024x1024', 'dall-e-3'), /1792x1024/);
+    });
+
+    it('validates gpt-image-2.5 against the openai-compatible contract', () => {
+        assert.equal(readSize(sizeForm('1536x1024'), 'size', '1024x1024', 'gpt-image-2.5-flare'), '1536x1024');
+        assert.throws(() => readSize(sizeForm('1001x1001'), 'size', '1024x1024', 'gpt-image-2.5-sunburst'), /size/);
+    });
+
+    it('relaxes gpt-image-2.5 when the channel declares positive-integer sizing', () => {
+        const positiveIntegerProfile = {
+            ...IMAGE_UPSTREAM_PROFILES['openai-compatible'],
+            gptImage2: {
+                ...IMAGE_UPSTREAM_PROFILES['openai-compatible'].gptImage2,
+                sizePolicy: 'positive-integer' as const
+            }
+        };
+        assert.equal(
+            readSize(sizeForm('1001x1001'), 'size', '1024x1024', 'gpt-image-2.5', positiveIntegerProfile),
+            '1001x1001'
+        );
+    });
+
+    it('accepts arbitrary positive integer sizes for third-party families', () => {
+        for (const model of ['gemini-3.1-flash-image', 'flux-1.1-pro', 'seedream-4', 'my-private-image-model']) {
+            assert.equal(readSize(sizeForm('1234x778'), 'size', '1024x1024', model), '1234x778');
+        }
+        assert.throws(() => readSize(sizeForm('9000x9000'), 'size', '1024x1024', 'flux-1.1-pro'), /size/);
+    });
+
+    it('gates the extended quality tiers by model family', () => {
+        const qualityForm = (quality: string) => {
+            const formData = new FormData();
+            formData.set('quality', quality);
+            return formData;
+        };
+        assert.equal(readGenerateQuality(qualityForm('xhigh'), 'gpt-image-2.5'), 'xhigh');
+        assert.equal(readGenerateQuality(qualityForm('max'), 'gpt-image-2.5-sunburst'), 'max');
+        assert.equal(readEditQuality(qualityForm('max'), 'gpt-image-2.5-flare'), 'max');
+        assert.throws(() => readGenerateQuality(qualityForm('xhigh'), 'gpt-image-2'), /quality/);
+        assert.throws(() => readEditQuality(qualityForm('max'), 'gpt-image-1'), /quality/);
+    });
+
+    it('gates transparent backgrounds by family', () => {
+        const backgroundForm = (background: string) => {
+            const formData = new FormData();
+            formData.set('background', background);
+            return formData;
+        };
+        assert.throws(() => readBackground(backgroundForm('transparent'), 'dall-e-3'), /transparent/);
+        // 其余族的透明背景支持没有官方明确声明，服务端不做本地判断，交由上游裁决。
+        for (const model of ['gpt-image-2.5-flare', 'gemini-3.1-flash-image', 'my-private-image-model']) {
+            assert.equal(readBackground(backgroundForm('transparent'), model), 'transparent');
+        }
+    });
+});

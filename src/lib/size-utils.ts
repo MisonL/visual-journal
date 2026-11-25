@@ -1,4 +1,5 @@
-import { GPT_IMAGE_MODELS, isGptImage2Model, type GptImageModel } from '@/lib/cost-utils';
+import { isGptImage2Model, type GptImageModel } from '@/lib/cost-utils';
+import { resolveImageModelFamily } from '@/lib/image-model-family';
 import type { ImageUpstreamProfile } from '@/lib/image-upstream-profile';
 
 type SizeValidationValues = Record<string, string | number>;
@@ -18,22 +19,22 @@ export const GPT_IMAGE_2_MAX_ASPECT = 3;
 export const PROVIDER_DEFINED_MAX_EDGE = 8192;
 export const PROVIDER_DEFINED_MAX_PIXELS = 67_108_864;
 
+// 判定全部收敛到模型族登记表：未登记模型与 provider_defined 族都走“上游说了算”的尺寸语义。
 export function isProviderDefinedCustomModel(model: GptImageModel): boolean {
-    return !(GPT_IMAGE_MODELS as readonly string[]).includes(model);
+    return resolveImageModelFamily(model).sizePolicy === 'provider_defined';
 }
 
 export function supportsCustomImageSize(model: GptImageModel): boolean {
-    return isGptImage2Model(model) || isProviderDefinedCustomModel(model);
+    return resolveImageModelFamily(model).sizePolicy !== 'legacy_allowlist';
 }
 
 export function shouldUsePositiveIntegerImageSize(
     model: GptImageModel,
     upstreamProfile: Pick<ImageUpstreamProfile, 'gptImage2'>
 ): boolean {
-    return (
-        isProviderDefinedCustomModel(model) ||
-        (isGptImage2Model(model) && upstreamProfile.gptImage2.sizePolicy === 'positive-integer')
-    );
+    const policy = resolveImageModelFamily(model).sizePolicy;
+    if (policy === 'provider_defined') return true;
+    return policy === 'openai_compatible' && upstreamProfile.gptImage2.sizePolicy === 'positive-integer';
 }
 
 export function validateGptImage2Size(width: number, height: number): SizeValidation {
@@ -190,6 +191,8 @@ const GPT_IMAGE_2_RESOLUTION_PRESETS: Array<Omit<SizePresetOption, 'dimensions'>
  */
 export function getPresetDimensions(preset: SizePreset, model: GptImageModel): string | null {
     if (preset === 'auto' || preset === 'custom') return null;
+    const familyPreset = resolveImageModelFamily(model).recommendedPresets?.find((entry) => entry.name === preset);
+    if (familyPreset) return familyPreset.size;
     const isGptImage2 = isGptImage2Model(model);
     switch (preset) {
         case 'square':
@@ -244,7 +247,7 @@ export function getSizePresetOptions(input: {
             dimensions: getPresetDimensions(value, input.model)
         }))
     ];
-    if (!isGptImage2Model(input.model) && GPT_IMAGE_MODELS.includes(input.model as (typeof GPT_IMAGE_MODELS)[number])) {
+    if (resolveImageModelFamily(input.model).sizePolicy === 'legacy_allowlist') {
         return options;
     }
     options.splice(1, 0, { value: 'custom', group: 'automatic', dimensions: null });

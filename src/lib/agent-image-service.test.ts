@@ -3,6 +3,7 @@ import {
     completeAgentExecutionState,
     hydrateAgentReplayResponse,
     prepareAgentEdit,
+    parseAgentGenerateRequest,
     readIdempotencyKey
 } from './agent-image-service';
 import type { AgentArtifactRecord, AgentStateStore } from './agent-state-store';
@@ -95,6 +96,68 @@ describe('prepareAgentEdit model routing validation', () => {
     });
 });
 
+describe('prepareAgentGenerate upstream model family constraints', () => {
+    const baseEnv = {
+        NODE_ENV: 'test',
+        OPENAI_CHANNEL_1_ID: 'family-channel',
+        OPENAI_CHANNEL_1_BASE_URL: 'https://family.example.com/v1',
+        OPENAI_CHANNEL_1_API_KEYS: 'family-key',
+        OPENAI_CHANNEL_1_MODELS: 'gpt-image-2.5-flare,gpt-image-2.5-sunburst,gemini-3.1-flash-image,dall-e-3',
+        OPENAI_CHANNEL_FAILURE_COOLDOWN_ENABLED: 'false'
+    };
+
+    async function prepareGenerate(body: Record<string, unknown>) {
+        const request = new Request('http://localhost/api/agent/image-requests', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Idempotency-Key': `family-${Math.random().toString(36).slice(2)}`
+            },
+            body: JSON.stringify(body)
+        });
+        return parseAgentGenerateRequest(request);
+    }
+
+    function withEnv<T>(overrides: Record<string, string>, run: () => Promise<T>): Promise<T> {
+        const originalEnv = { ...process.env };
+        for (const key of Object.keys(process.env)) {
+            if (key.startsWith('OPENAI_CHANNEL_')) delete process.env[key];
+        }
+        Object.assign(process.env, baseEnv, overrides);
+        resetServerChannelStateForTests();
+        return run().finally(() => {
+            resetServerChannelStateForTests();
+            restoreProcessEnv(originalEnv);
+        });
+    }
+
+    it('keeps the extended 2.5 quality tiers for the gpt-image-2.5 family', async () => {
+        await withEnv({}, async () => {
+            const request = await prepareGenerate({
+                model: 'gpt-image-2.5-flare',
+                prompt: 'a wide landscape',
+                quality: 'xhigh',
+                size: '1536x1024'
+            });
+            assert.equal(request.model, 'gpt-image-2.5-flare');
+            assert.equal(request.quality, 'xhigh');
+            assert.equal(request.size, '1536x1024');
+        });
+    });
+
+    it('rejects the extended quality tiers for models outside the 2.5 family', async () => {
+        await withEnv({}, async () => {
+            await assert.rejects(
+                () => prepareGenerate({ model: 'gemini-3.1-flash-image', prompt: 'x', quality: 'max' }),
+                (error) => {
+                    assert.ok(error instanceof RequestValidationError);
+                    assert.match(error.message, /quality/);
+                    return true;
+                }
+            );
+        });
+    });
+});
 describe('hydrateAgentReplayResponse', () => {
     it('rejects base64 replay when stored artifact filepath escapes the image directory', async () => {
         const store = createReplayStore([

@@ -49,6 +49,7 @@ import {
     resolveEffectiveCredential
 } from './channel-router';
 import { isGptImage2Model } from './cost-utils';
+import { resolveImageModelFamily } from './image-model-family';
 import {
     RequestValidationError,
     assertMaskCompatibility,
@@ -568,6 +569,8 @@ export async function executeAgentGenerate(options: {
             prompt: options.request.prompt,
             outputFormat: options.request.output_format,
             targetDimensions: readRequestedImageDimensions(options.request.size),
+            // 渠道声明不遵循请求尺寸时接受上游真实尺寸，而不是把渠道行为判成故障。
+            enforceTargetDimensions: credentialContext.upstreamProfile.outputDimensions !== 'upstream_controlled',
             responseMode: options.request.response_mode,
             normalizeOutputFormat: true,
             requestId: options.requestId,
@@ -638,6 +641,11 @@ async function executeAgentGenerateUpstream(
         background: request.background as OpenAI.Images.ImageGenerateParams['background'],
         moderation: request.moderation as OpenAI.Images.ImageGenerateParams['moderation'],
         ...(request.output_compression !== undefined ? { output_compression: request.output_compression } : {}),
+        // complexity 尚未进入 OpenAI SDK 类型定义，在 SDK 边界显式断言；
+        // 契约层已保证只有 gpt-image-2.6 族才会带这个字段。
+        ...(request.complexity !== undefined
+            ? { complexity: request.complexity as unknown as OpenAI.Images.ImageGenerateParams['quality'] }
+            : {}),
         ...(request.force_web !== undefined ? { force_web: request.force_web } : {})
     };
     if (!shouldUseAgentUpstreamStream(streamOptions)) {
@@ -724,12 +732,14 @@ function validateAgentGenerateAgainstUpstreamProfile(
         }
     }
     if (options.forceRequest) return;
-    if (
-        isGptImage2Model(request.model) &&
-        request.background === 'transparent' &&
-        !upstreamProfile.gptImage2.allowTransparentBackground
-    ) {
-        throw new RequestValidationError('gpt-image-2 不支持 transparent 背景。', 422);
+    const modelFamily = resolveImageModelFamily(request.model);
+    if (request.background === 'transparent') {
+        if (modelFamily.allowTransparentBackground === false) {
+            throw new RequestValidationError(`${request.model} 不支持 transparent 背景。`, 422);
+        }
+        if (isGptImage2Model(request.model) && !upstreamProfile.gptImage2.allowTransparentBackground) {
+            throw new RequestValidationError('gpt-image-2 不支持 transparent 背景。', 422);
+        }
     }
     if (!isGptImage2Model(request.model) || request.size === 'auto') return;
     const formData = new FormData();
@@ -1243,6 +1253,7 @@ export async function executeAgentEdit(options: {
             prompt: preparation.prompt,
             outputFormat: AGENT_EDIT_OUTPUT_FORMAT,
             targetDimensions: readRequestedImageDimensions(preparation.size),
+            enforceTargetDimensions: credentialContext.upstreamProfile.outputDimensions !== 'upstream_controlled',
             responseMode: preparation.responseMode,
             normalizeOutputFormat: true,
             requestId: options.requestId,
@@ -1621,6 +1632,7 @@ async function persistOpenAiImages(options: {
     prompt: string;
     outputFormat: ValidOutputFormat;
     targetDimensions?: ReturnType<typeof readRequestedImageDimensions>;
+    enforceTargetDimensions?: boolean;
     responseMode: AgentResponseMode;
     normalizeOutputFormat?: boolean;
     requestId: string;
@@ -1642,6 +1654,7 @@ async function persistOpenAiImages(options: {
             includeBase64: shouldIncludeBase64(options.responseMode),
             normalizeOutputFormat: options.normalizeOutputFormat,
             targetDimensions: options.targetDimensions,
+            enforceTargetDimensions: options.enforceTargetDimensions,
             apiBaseUrl: options.apiBaseUrl,
             apiKey: options.apiKey,
             upstreamProxyUrl: options.upstreamProxyUrl,

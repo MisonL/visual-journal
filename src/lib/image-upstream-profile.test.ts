@@ -1,5 +1,6 @@
 import {
     buildMatscaAppHeaders,
+    combineImageUpstreamProfiles,
     getImageCountRangeForBackend,
     getPartialImagesRangeForBackend,
     IMAGE_UPSTREAM_PROFILES,
@@ -194,5 +195,27 @@ describe('summarizeImageUpstreamProfile', () => {
             max: 3,
             allowedValues: [1, 3]
         });
+    });
+});
+
+describe('output dimension policy', () => {
+    it('keeps built-in profiles on the strict requested contract', () => {
+        assert.equal(IMAGE_UPSTREAM_PROFILES['openai-compatible'].outputDimensions, 'requested');
+        assert.equal(IMAGE_UPSTREAM_PROFILES.matsca.outputDimensions, 'requested');
+    });
+
+    it('only relaxes the merged profile when every channel is upstream_controlled', () => {
+        const relaxed = combineImageUpstreamProfiles([
+            { ...IMAGE_UPSTREAM_PROFILES['openai-compatible'], outputDimensions: 'upstream_controlled' },
+            { ...IMAGE_UPSTREAM_PROFILES['openai-compatible'], outputDimensions: 'upstream_controlled' }
+        ]);
+        assert.equal(relaxed.outputDimensions, 'upstream_controlled');
+
+        // 只要有一个渠道保证按请求尺寸，整体就必须保持严格，不能被放宽的渠道带偏。
+        const mixed = combineImageUpstreamProfiles([
+            { ...IMAGE_UPSTREAM_PROFILES['openai-compatible'], outputDimensions: 'upstream_controlled' },
+            { ...IMAGE_UPSTREAM_PROFILES['openai-compatible'], outputDimensions: 'requested' }
+        ]);
+        assert.equal(mixed.outputDimensions, 'requested');
     });
 });

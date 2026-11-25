@@ -158,7 +158,7 @@ function readGenerateOptions(input: CommonModeInput): GenerateOptions {
     const size = readSize(input.formData, 'size', '1024x1024', input.model, input.upstreamProfile, {
         forceRequest: input.forceRequest === true
     });
-    const quality = readGenerateQuality(input.formData);
+    const quality = readGenerateQuality(input.formData, input.model);
     const outputFormat = readOutputFormat(input.formData);
     const outputCompression = readOutputCompression(input.formData, outputFormat);
     const background = readBackground(input.formData, input.model, input.upstreamProfile, {
@@ -171,7 +171,8 @@ function readGenerateOptions(input: CommonModeInput): GenerateOptions {
         prompt: input.prompt,
         n,
         size: size as OpenAI.Images.ImageGenerateParams['size'],
-        quality,
+        // gpt-image-2.5 族的 xhigh/max 尚未进入 OpenAI SDK 类型定义，这里在 SDK 边界显式断言。
+        quality: quality as OpenAI.Images.ImageGenerateParams['quality'],
         output_format: outputFormat,
         background,
         moderation
@@ -293,7 +294,7 @@ async function createResponsesImageResult(input: CommonModeInput, options: Gener
     appLogger.info('调用 Responses API image_generation 实验后端。', input.requestLogContext);
     return {
         outputFormat: options.outputFormat,
-        targetDimensions: readRequestedImageDimensions(options.size),
+        targetDimensions: readEnforcedTargetDimensions(options.size, input.upstreamProfile),
         result: await generateImageWithResponsesBackend({
             responses: input.openai.responses,
             prompt: input.prompt,
@@ -367,7 +368,7 @@ async function createResponsesImageStreamResponse(
         input.onStreamUnavailable?.(error, 'stream_request_failed');
         return {
             outputFormat: options.outputFormat,
-            targetDimensions: readRequestedImageDimensions(options.size),
+            targetDimensions: readEnforcedTargetDimensions(options.size, input.upstreamProfile),
             result: await createResponsesImageResultOnly(input, options)
         };
     }
@@ -375,7 +376,7 @@ async function createResponsesImageStreamResponse(
         stream,
         modeLabel: '生成',
         outputFormat: options.outputFormat,
-        targetDimensions: readRequestedImageDimensions(options.size),
+        targetDimensions: readEnforcedTargetDimensions(options.size, input.upstreamProfile),
         storageMode: input.storageMode,
         apiBaseUrl: input.apiBaseUrl,
         apiKey: input.apiKey,
@@ -433,7 +434,7 @@ async function createGenerateStreamResponse(
         input.onStreamUnavailable?.(error, 'stream_request_failed');
         return {
             outputFormat: options.outputFormat,
-            targetDimensions: readRequestedImageDimensions(options.size),
+            targetDimensions: readEnforcedTargetDimensions(options.size, input.upstreamProfile),
             result: await createImagesGenerateResultOnly(input, options)
         };
     }
@@ -441,7 +442,7 @@ async function createGenerateStreamResponse(
         stream,
         modeLabel: '生成',
         outputFormat: options.outputFormat,
-        targetDimensions: readRequestedImageDimensions(options.size),
+        targetDimensions: readEnforcedTargetDimensions(options.size, input.upstreamProfile),
         storageMode: input.storageMode,
         apiBaseUrl: input.apiBaseUrl,
         apiKey: input.apiKey,
@@ -473,7 +474,7 @@ export async function handleGenerateImageMode(input: CommonModeInput): Promise<I
     if (!input.streamEnabled) {
         return {
             outputFormat: options.outputFormat,
-            targetDimensions: readRequestedImageDimensions(options.size),
+            targetDimensions: readEnforcedTargetDimensions(options.size, input.upstreamProfile),
             result: await createImagesGenerateResultOnly(input, options)
         };
     }
@@ -485,7 +486,7 @@ function readEditOptions(input: CommonModeInput): EditOptions {
     const size = readSize(input.formData, 'size', 'auto', input.model, input.upstreamProfile, {
         forceRequest: input.forceRequest === true
     });
-    const quality = readEditQuality(input.formData);
+    const quality = readEditQuality(input.formData, input.model);
     const outputFormat = readOutputFormat(input.formData);
     const outputCompression = readOutputCompression(input.formData, outputFormat);
     const moderation = readModeration(input.formData);
@@ -498,7 +499,7 @@ function readEditOptions(input: CommonModeInput): EditOptions {
         image: imageFiles,
         n,
         size: size === 'auto' ? undefined : (size as OpenAI.Images.ImageEditParams['size']),
-        quality,
+        quality: quality as OpenAI.Images.ImageEditParams['quality'],
         output_format: outputFormat,
         moderation
     };
@@ -576,7 +577,7 @@ async function createEditStreamResponse(input: CommonModeInput, options: EditOpt
         input.onStreamUnavailable?.(error, 'stream_request_failed');
         return {
             outputFormat: options.outputFormat,
-            targetDimensions: readRequestedImageDimensions(options.size),
+            targetDimensions: readEnforcedTargetDimensions(options.size, input.upstreamProfile),
             result: await createEditResultOnly(input, options)
         };
     }
@@ -584,7 +585,7 @@ async function createEditStreamResponse(input: CommonModeInput, options: EditOpt
         stream,
         modeLabel: '编辑',
         outputFormat: options.outputFormat,
-        targetDimensions: readRequestedImageDimensions(options.size),
+        targetDimensions: readEnforcedTargetDimensions(options.size, input.upstreamProfile),
         storageMode: input.storageMode,
         apiBaseUrl: input.apiBaseUrl,
         apiKey: input.apiKey,
@@ -642,7 +643,7 @@ export async function handleEditImageMode(input: CommonModeInput): Promise<Image
                 input.onStreamUnavailable?.(error, 'stream_request_failed');
                 return {
                     outputFormat: options.outputFormat,
-                    targetDimensions: readRequestedImageDimensions(options.size),
+                    targetDimensions: readEnforcedTargetDimensions(options.size, input.upstreamProfile),
                     result: await editImageWithResponsesBackend(responseInput)
                 };
             }
@@ -650,7 +651,7 @@ export async function handleEditImageMode(input: CommonModeInput): Promise<Image
                 stream,
                 modeLabel: '编辑',
                 outputFormat: options.outputFormat,
-                targetDimensions: readRequestedImageDimensions(options.size),
+                targetDimensions: readEnforcedTargetDimensions(options.size, input.upstreamProfile),
                 storageMode: input.storageMode,
                 apiBaseUrl: input.apiBaseUrl,
                 apiKey: input.apiKey,
@@ -673,16 +674,30 @@ export async function handleEditImageMode(input: CommonModeInput): Promise<Image
         }
         return {
             outputFormat: options.outputFormat,
-            targetDimensions: readRequestedImageDimensions(options.size),
+            targetDimensions: readEnforcedTargetDimensions(options.size, input.upstreamProfile),
             result: await editImageWithResponsesBackend(responseInput)
         };
     }
     if (!input.streamEnabled) {
         return {
             outputFormat: options.outputFormat,
-            targetDimensions: readRequestedImageDimensions(options.size),
+            targetDimensions: readEnforcedTargetDimensions(options.size, input.upstreamProfile),
             result: await createEditResultOnly(input, options)
         };
     }
     return createEditStreamResponse(input, options);
+}
+
+/**
+ * 读取需要强制执行的请求尺寸。
+ *
+ * 渠道声明 `output_dimensions: upstream_controlled` 时返回 undefined，
+ * 表示不强制尺寸：接受上游真实尺寸，避免把渠道的固定出图行为判成故障。
+ */
+function readEnforcedTargetDimensions(
+    size: string | null | undefined,
+    upstreamProfile: ImageUpstreamProfile
+): ReturnType<typeof readRequestedImageDimensions> {
+    if (upstreamProfile.outputDimensions === 'upstream_controlled') return undefined;
+    return readRequestedImageDimensions(size);
 }

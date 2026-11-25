@@ -12,6 +12,7 @@ import {
 } from './channel-request-mode';
 import { getChannelPoolSummary, parseChannelPoolConfig } from './channel-router';
 import { isGptImage2Model } from './cost-utils';
+import { familySupportsComplexity, readFamilyQualityTiers, resolveImageModelFamily } from './image-model-family';
 import {
     MAX_PROMPT_LENGTH,
     MAX_MODEL_NAME_LENGTH,
@@ -82,18 +83,28 @@ export const AGENT_DEFAULT_RECOVERY_INTERVAL_MS = 30 * 1000;
 export const AGENT_PAGE_REQUEST_DIAGNOSTICS_NO_MATCH_HINT =
     'matched_log_count=0 表示当前保留窗口内没有匹配日志；可能已被保留条数淘汰、被 APP_LOG_LEVEL 过滤，或本地日志文件被清理。';
 
+// 只接受 legacy 尺寸白名单（auto 与三种预设尺寸）的旧模型。
+export const AGENT_LEGACY_MODELS = ['gpt-image-1', 'gpt-image-1-mini', 'gpt-image-1.5'] as const;
+// 项目声明的模型清单：legacy 白名单模型，加上走 provider-defined 尺寸语义的 gpt-image-2 系与 gpt-image-2.5 系。
 export const AGENT_MODELS = [
-    'gpt-image-1',
-    'gpt-image-1-mini',
-    'gpt-image-1.5',
+    ...AGENT_LEGACY_MODELS,
     'gpt-image-2',
-    'gpt-image-2-1k'
+    'gpt-image-2-1k',
+    'gpt-image-2.5',
+    'gpt-image-2.5-flare',
+    'gpt-image-2.5-sunburst',
+    'gpt-image-2.6-flare',
+    'gpt-image-2.6-sunburst'
 ] as const;
 export const AGENT_OUTPUT_FORMATS = ['png', 'jpeg', 'webp'] as const;
 const AGENT_DEFAULT_OUTPUT_FORMAT = 'webp';
 const AGENT_DEFAULT_LOSSY_OUTPUT_COMPRESSION = 100;
 export const AGENT_RESPONSE_MODES = ['path', 'base64', 'both'] as const;
+// 基础质量档；gpt-image-2.5 族在官方文档中额外提供 xhigh 与 max。
 export const AGENT_QUALITIES = ['low', 'medium', 'high', 'auto'] as const;
+export const AGENT_GPT_IMAGE_25_QUALITIES = ['low', 'medium', 'high', 'xhigh', 'max', 'auto'] as const;
+// gpt-image-2.6 新增的复杂度控制：与 quality 正交，控制渲染前的规划算力。
+export const AGENT_COMPLEXITY_LEVELS = ['low', 'medium', 'high'] as const;
 export const AGENT_BACKGROUNDS = ['transparent', 'opaque', 'auto'] as const;
 export const AGENT_MODERATIONS = ['low', 'auto'] as const;
 export const AGENT_LEGACY_SIZES = ['auto', '1024x1024', '1536x1024', '1024x1536'] as const;
@@ -131,7 +142,8 @@ export type AgentStateBackend = 'memory' | 'sqlite' | 'postgres';
 export type AgentAuthScheme = 'bearer' | 'x-app-password-hash';
 export type PageSseAuthScheme = 'form-password-hash';
 export type AgentResponseMode = (typeof AGENT_RESPONSE_MODES)[number];
-export type AgentQuality = (typeof AGENT_QUALITIES)[number];
+export type AgentQuality = (typeof AGENT_GPT_IMAGE_25_QUALITIES)[number];
+export type AgentComplexity = (typeof AGENT_COMPLEXITY_LEVELS)[number];
 export type AgentBackground = (typeof AGENT_BACKGROUNDS)[number];
 export type AgentModeration = (typeof AGENT_MODERATIONS)[number];
 export type AgentJobState = (typeof AGENT_JOB_STATES)[number];
@@ -189,6 +201,8 @@ export type AgentGenerateRequest = {
     n: number;
     size: string;
     quality: AgentQuality;
+    /** 仅 gpt-image-2.6 族支持；缺省表示不发送该字段，由上游用默认 high。 */
+    complexity?: AgentComplexity;
     output_format: ValidOutputFormat;
     output_compression?: number;
     background: AgentBackground;
@@ -292,6 +306,9 @@ export type AgentCapabilities = {
         tun_mode: ImageTransportTunMode;
     };
     upstream_profile: ImageUpstreamProfileSummary;
+    /** 服务端是否按请求尺寸归一上游图片。 */
+    output_dimensions: ImageUpstreamProfile['outputDimensions'];
+    output_dimensions_note: string;
     upstream_request_headers: {
         default: UpstreamRequestHeaderSummary;
         channels: Array<{
@@ -471,6 +488,7 @@ export type AgentCapabilities = {
         output_formats: readonly string[];
         response_modes: readonly string[];
         qualities: readonly string[];
+        gpt_image_25_qualities: readonly string[];
         backgrounds: readonly string[];
         moderations: readonly string[];
         legacy_sizes: readonly string[];
@@ -631,42 +649,41 @@ function readSize(
         fields.size = '必须是字符串';
         return fallback;
     }
-    if (
-        !isGptImage2Model(model) &&
-        AGENT_MODELS.includes(model as (typeof AGENT_MODELS)[number]) &&
-        !isOneOf(value, AGENT_LEGACY_SIZES)
-    ) {
-        fields.size = `${model} 的 size 必须是以下值之一：${AGENT_LEGACY_SIZES.join(', ')}`;
-        return fallback;
-    }
-    if (!isGptImage2Model(model) && !AGENT_MODELS.includes(model as (typeof AGENT_MODELS)[number])) {
-        if (value === 'auto') return value;
-        const match = /^(\d+)x(\d+)$/.exec(value);
-        if (!match) {
-            fields.size = '必须是 auto 或 WxH 格式的尺寸值';
+    const family = resolveImageModelFamily(model);
+    // legacy 白名单族（gpt-image-1 系、DALL·E 系）只接受族内预设尺寸。
+    if (family.sizePolicy === 'legacy_allowlist') {
+        const legacySizes = family.legacySizes ?? AGENT_LEGACY_SIZES;
+        if (!(legacySizes as readonly string[]).includes(value)) {
+            fields.size = `${model} 的 size 必须是以下值之一：${legacySizes.join(', ')}`;
             return fallback;
         }
-        const validation = validatePositiveIntegerImageSize(Number(match[1]), Number(match[2]));
+        return value;
+    }
+    if (value === 'auto') return value;
+    const match = /^(\d+)x(\d+)$/.exec(value);
+    if (!match) {
+        fields.size = '必须是 auto 或 WxH 格式的尺寸值';
+        return fallback;
+    }
+    const width = Number(match[1]);
+    const height = Number(match[2]);
+    // provider_defined 族与未登记模型只做正整数与本地资源上限保护，语义交给上游。
+    if (family.sizePolicy === 'provider_defined' || options.forceRequest) {
+        const validation = validatePositiveIntegerImageSize(width, height);
         if (!validation.valid) {
             fields.size = validation.reason;
             return fallback;
         }
         return value;
     }
-    if (isGptImage2Model(model) && value !== 'auto') {
-        const match = /^(\d+)x(\d+)$/.exec(value);
-        if (!match) {
-            fields.size = '必须是 auto 或 WxH 格式的尺寸值';
-            return fallback;
-        }
-        const validation =
-            options.forceRequest || upstreamProfile.gptImage2.sizePolicy === 'positive-integer'
-                ? validatePositiveIntegerImageSize(Number(match[1]), Number(match[2]))
-                : validateGptImage2Size(Number(match[1]), Number(match[2]));
-        if (!validation.valid) {
-            fields.size = validation.reason;
-            return fallback;
-        }
+    // openai_compatible 族（gpt-image-2 系与 gpt-image-2.5 系）默认走 16 倍数、3:1 与像素预算。
+    const validation =
+        upstreamProfile.gptImage2.sizePolicy === 'positive-integer'
+            ? validatePositiveIntegerImageSize(width, height)
+            : validateGptImage2Size(width, height);
+    if (!validation.valid) {
+        fields.size = validation.reason;
+        return fallback;
     }
     return value;
 }
@@ -969,13 +986,38 @@ function readPartialImagesForBackend(
     ) as PartialImagesCount;
 }
 
-function readQuality(body: Record<string, unknown>, fields: FieldErrors): AgentQuality {
+function readQuality(body: Record<string, unknown>, fields: FieldErrors, model: GptImageModel): AgentQuality {
     const value = readStringField(body, 'quality', 'high');
-    if (!value || !isOneOf(value, AGENT_QUALITIES)) {
-        fields.quality = `必须是以下值之一：${AGENT_QUALITIES.join(', ')}`;
+    // 质量档由模型族登记表驱动：只有声明了 extendedQualityTiers 的族（2.5/2.6）
+    // 才放宽到 xhigh 与 max，其余族必须保持基础四档。
+    const allowedQualities = readFamilyQualityTiers(model, AGENT_QUALITIES, AGENT_GPT_IMAGE_25_QUALITIES);
+    if (!value || !isOneOf(value, allowedQualities)) {
+        fields.quality = `必须是以下值之一：${allowedQualities.join(', ')}`;
         return 'high';
     }
     return value;
+}
+
+/**
+ * complexity 只有 gpt-image-2.6 族支持。其他模型传了就是明确的能力误用，
+ * 必须报错而不是静默丢掉，否则调用方会以为规划算力被调整过。
+ */
+function readComplexity(
+    body: Record<string, unknown>,
+    fields: FieldErrors,
+    model: GptImageModel
+): AgentComplexity | undefined {
+    const raw = body.complexity;
+    if (raw === undefined || raw === null) return undefined;
+    if (!familySupportsComplexity(model)) {
+        fields.complexity = `模型 ${model} 不支持 complexity，只有 gpt-image-2.6 族支持。`;
+        return undefined;
+    }
+    if (typeof raw !== 'string' || !isOneOf(raw, AGENT_COMPLEXITY_LEVELS)) {
+        fields.complexity = `必须是以下值之一：${AGENT_COMPLEXITY_LEVELS.join(', ')}`;
+        return undefined;
+    }
+    return raw;
 }
 
 function readBackground(body: Record<string, unknown>, fields: FieldErrors): AgentBackground {
@@ -994,7 +1036,14 @@ function validateAgentGenerateBackground(input: {
     profile: ImageUpstreamProfile;
     fields: FieldErrors;
 }): void {
-    if (input.forceRequest || !isGptImage2Model(input.model) || input.background !== 'transparent') return;
+    if (input.forceRequest || input.background !== 'transparent') return;
+    const family = resolveImageModelFamily(input.model);
+    // 官方明确不支持透明背景的族直接拒绝；其余族（含 gpt-image-2 系与未登记自定义模型）按渠道能力裁决。
+    if (family.allowTransparentBackground === false) {
+        input.fields.background = `${input.model} 不支持 transparent 背景。`;
+        return;
+    }
+    if (!isGptImage2Model(input.model)) return;
     if (!input.profile.gptImage2.allowTransparentBackground) {
         input.fields.background = `${input.model} 不支持 transparent 背景。`;
     }
@@ -1144,7 +1193,8 @@ export function validateAgentGenerateRequest(body: unknown): AgentGenerateReques
     const size = readSize(objectBody, model, fields, '1024x1024', upstreamLimits.validationProfile, {
         forceRequest: forceRequest === true
     });
-    const quality = readQuality(objectBody, fields);
+    const quality = readQuality(objectBody, fields, model);
+    const complexity = readComplexity(objectBody, fields, model);
     const outputFormat = readOutputFormat(objectBody, fields);
     const outputCompression = readOutputCompression(objectBody, outputFormat, fields);
     const background = readBackground(objectBody, fields);
@@ -1229,6 +1279,7 @@ export function validateAgentGenerateRequest(body: unknown): AgentGenerateReques
         n,
         size,
         quality,
+        ...(complexity !== undefined ? { complexity } : {}),
         output_format: outputFormat,
         ...(outputCompression !== undefined ? { output_compression: outputCompression } : {}),
         background,
@@ -1616,6 +1667,11 @@ export function buildAgentCapabilities(env: Record<string, string | undefined>):
                 'requests_where_real_upstream_should_decide'
             ]
         },
+        output_dimensions: upstreamLimits.validationProfile.outputDimensions,
+        output_dimensions_note:
+            upstreamLimits.validationProfile.outputDimensions === 'upstream_controlled'
+                ? '当前渠道不保证按 size 出图；服务端接受上游真实尺寸并如实上报，结果中的 width/height 为准。'
+                : '服务端会把上游图片归一到请求尺寸；宽高比偏差过大时返回 image_dimension_mismatch。',
         model_limits: {
             'gpt-image-2': {
                 ...modelSizeMetadata,
@@ -1832,6 +1888,7 @@ export function buildAgentCapabilities(env: Record<string, string | undefined>):
             output_formats: AGENT_OUTPUT_FORMATS,
             response_modes: AGENT_RESPONSE_MODES,
             qualities: AGENT_QUALITIES,
+            gpt_image_25_qualities: AGENT_GPT_IMAGE_25_QUALITIES,
             backgrounds: AGENT_BACKGROUNDS,
             moderations: AGENT_MODERATIONS,
             legacy_sizes: AGENT_LEGACY_SIZES,

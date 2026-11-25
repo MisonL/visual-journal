@@ -1,5 +1,6 @@
 import { AGENT_MODELS } from './agent-api-contracts';
 import { parseChannelPoolConfig, type ChannelCredential } from './channel-router';
+import { readImageModelLifecycle, resolveImageModelFamily, toDirectorySizePolicy } from './image-model-family';
 import { readPlainHttpApiBaseUrlAllowlist, resolveDefaultImageModel, validateApiBaseUrl } from './image-request-utils';
 import { mergeUpstreamHeadersWithFixed } from './image-upstream-profile';
 import { isLoopbackIpAddress, isPublicIpAddress, isSyntheticDnsIpAddress } from './network-security';
@@ -14,6 +15,23 @@ export type AgentModelEntry = {
     status: 'declared' | 'verified_usable' | 'known_unavailable';
     size_policy: 'provider_defined' | 'legacy_allowlist';
     strict_dimensions: boolean;
+    /** 模型族与本地能力声明，客户端预检时可直接使用，不必自行维护模型清单。 */
+    family?: string;
+    family_label?: string;
+    supports_edit?: boolean;
+    allow_transparent_background?: boolean | null;
+    recommended_presets?: { name: string; size: string; purpose: string }[];
+    /** 官方为该族额外提供的质量档（如 2.5/2.6 的 xhigh、max）。 */
+    extended_quality_tiers?: string[];
+    /** 是否支持 complexity 规划算力控制；为 true 时本服务的请求契约也接受该字段。 */
+    supports_complexity?: boolean;
+    /**
+     * 上游模型支持、但本服务尚未代理的能力。调用方不应据此发送请求，
+     * 需要这些能力时必须直连上游。
+     */
+    upstream_only_capabilities?: string[];
+    /** 官方公布的关停信息；缺省表示官方未公布关停计划。 */
+    lifecycle?: { status: 'deprecated' | 'shutdown'; shutdown_date?: string; note: string };
 };
 
 export type AgentModelChannel = {
@@ -92,26 +110,12 @@ export function buildAgentModelDirectory(env: Record<string, string | undefined>
     const knownModels: AgentModelEntry[] = [
         AGENT_MODELS.includes(defaultModel as (typeof AGENT_MODELS)[number])
             ? createDeclaredProjectModelEntry(defaultModel as (typeof AGENT_MODELS)[number], 'project_default')
-            : {
-                  id: defaultModel,
-                  source: 'project_default' as const,
-                  custom: true,
-                  status: 'declared' as const,
-                  size_policy: 'provider_defined' as const,
-                  strict_dimensions: false
-              },
+            : createConfiguredModelEntry(defaultModel, 'project_default'),
         ...AGENT_MODELS.filter((model) => model !== defaultModel).map((id) => createDeclaredProjectModelEntry(id))
     ];
     for (const model of configured) {
         if (!knownModels.some((entry) => entry.id === model)) {
-            knownModels.push({
-                id: model,
-                source: 'configured',
-                custom: true,
-                status: 'declared',
-                size_policy: 'provider_defined',
-                strict_dimensions: false
-            });
+            knownModels.push(createConfiguredModelEntry(model, 'configured'));
         }
     }
     return {
@@ -123,18 +127,63 @@ export function buildAgentModelDirectory(env: Record<string, string | undefined>
     };
 }
 
+/** 族级能力声明：两个构造点共用，避免新增能力时改一处漏一处。 */
+function readFamilyCapabilityFields(id: string) {
+    const family = resolveImageModelFamily(id);
+    const lifecycle = readImageModelLifecycle(id);
+    return {
+        family: family.id,
+        family_label: family.label,
+        supports_edit: family.supportsEdit,
+        allow_transparent_background: family.allowTransparentBackground,
+        ...(family.recommendedPresets ? { recommended_presets: [...family.recommendedPresets] } : {}),
+        ...(family.extendedQualityTiers ? { extended_quality_tiers: [...family.extendedQualityTiers] } : {}),
+        ...(family.supportsComplexity ? { supports_complexity: true } : {}),
+        ...(() => {
+            // markup 引导编辑与 svg/gif 输出本服务都还没代理，只作为上游能力披露。
+            const upstreamOnly: string[] = [];
+            if (family.supportsMarkupEdits) upstreamOnly.push('markup');
+            if (family.extraOutputFormats) upstreamOnly.push(...family.extraOutputFormats);
+            return upstreamOnly.length > 0 ? { upstream_only_capabilities: upstreamOnly } : {};
+        })(),
+        ...(lifecycle
+            ? {
+                  lifecycle: {
+                      status: lifecycle.status,
+                      ...(lifecycle.shutdownDate ? { shutdown_date: lifecycle.shutdownDate } : {}),
+                      note: lifecycle.note
+                  }
+              }
+            : {})
+    };
+}
+
+function createConfiguredModelEntry(id: string, source: 'project_default' | 'configured'): AgentModelEntry {
+    const family = resolveImageModelFamily(id);
+    return {
+        id,
+        source,
+        custom: true,
+        status: 'declared',
+        size_policy: toDirectorySizePolicy(family.sizePolicy),
+        strict_dimensions: false,
+        ...readFamilyCapabilityFields(id)
+    };
+}
+
 function createDeclaredProjectModelEntry(
     id: (typeof AGENT_MODELS)[number],
     source: 'project_default' | 'project_known' = 'project_known'
 ): AgentModelEntry {
-    const providerDefined = id === 'gpt-image-2' || id === 'gpt-image-2-1k';
+    const family = resolveImageModelFamily(id);
     return {
         id,
         source,
         custom: false,
         status: 'declared',
-        size_policy: providerDefined ? 'provider_defined' : 'legacy_allowlist',
-        strict_dimensions: false
+        size_policy: toDirectorySizePolicy(family.sizePolicy),
+        strict_dimensions: false,
+        ...readFamilyCapabilityFields(id)
     };
 }
 
@@ -266,12 +315,9 @@ export async function probeAgentModelDirectory(
                         knownEntry.status = 'verified_usable';
                     } else {
                         directory.known_models.push({
-                            id,
-                            source: 'configured',
+                            ...createConfiguredModelEntry(id, 'configured'),
                             custom: !AGENT_MODELS.includes(id as (typeof AGENT_MODELS)[number]),
-                            status: 'verified_usable',
-                            size_policy: 'provider_defined',
-                            strict_dimensions: false
+                            status: 'verified_usable'
                         });
                     }
                 }

@@ -24,6 +24,8 @@ describe('local image upstream fixture', () => {
             assert.equal(body.data[0].b64_json, FIXTURE_IMAGE_BASE64);
             assert.equal(body.fixture_request.model, 'gpt-image-2');
             assert.equal(body.fixture_request.stream, false);
+            assert.equal(body.fixture_request.size, undefined);
+            assert.equal(body.fixture_request.quality, undefined);
         } finally {
             await fixture.close();
         }
@@ -134,7 +136,14 @@ describe('local image upstream fixture', () => {
             const models = await modelsResponse.json();
             assert.deepEqual(
                 models.data.map((model) => model.id),
-                ['gpt-image-2', 'gpt-5.4']
+                [
+                    'gpt-image-2',
+                    'gpt-image-2.5',
+                    'gpt-image-2.5-flare',
+                    'gpt-image-2.5-sunburst',
+                    'gemini-3.1-flash-image',
+                    'gpt-5.4'
+                ]
             );
         } finally {
             await fixture.close();

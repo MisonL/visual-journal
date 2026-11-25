@@ -27,7 +27,7 @@ export type ResponsesImageGenerateInput = {
     responsesModel: string;
     imageModel: string;
     size: string;
-    quality: 'low' | 'medium' | 'high' | 'auto';
+    quality: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'auto';
     outputFormat: 'png' | 'webp' | 'jpeg';
     background: 'transparent' | 'opaque' | 'auto';
     moderation: 'auto' | 'low';

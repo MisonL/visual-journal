@@ -18,6 +18,10 @@ import type OpenAI from 'openai';
 const PNG_BASE64 =
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==';
 
+// 100x80（5:4），用于验证"上游尺寸与请求尺寸宽高比不一致"的场景。
+const WIDE_PNG_BASE64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAGQAAABQCAIAAABga0e4AAAACXBIWXMAAAPoAAAD6AG1e1JrAAAA5UlEQVR4nO3W0QnEQBDD0NT0+i9gy7oW8nN4A4KpQMgeP4fuvIPwROq81iVYguUfickswZJZtu+oGAqWzFIMfWUY11mCJbMUQ/MyqrMES2aZR6zpIFgyy/3XghcsmaUYmpdRnSVYMss8Yk0HwZJZ7r8WvGDJLMXQvIzqLMGSWeYRazoIlsxy/7XgBUtmKYbmZVRnCZbMMo9Y00GwZJb7rwUvWDJLMTQvozpLsGSWecSaDoIls9x/LXjBklmKoXkZ1VmCJbPMI9Z0ECyZ5f5rwQuWzFIMzcuozhIsmWUesaaDYFmZ9QOXk6EdH6BfcgAAAABJRU5ErkJggg==';
+
 describe('readAcceptedImageTaskDetails', () => {
     it('extracts task metadata from async upstream image payloads', () => {
         assert.deepEqual(
@@ -477,5 +481,45 @@ describe('readRetryAfterSecondsHeader', () => {
         assert.equal(readRetryAfterSecondsHeader('999999999999999999999'), undefined);
         assert.equal(readRetryAfterSecondsHeader('Wed, 21 Oct 2015 07:28:00 GMT'), undefined);
         assert.equal(readRetryAfterSecondsHeader(3), undefined);
+    });
+});
+
+describe('upstream-controlled output dimensions', () => {
+    it('still rejects an aspect-ratio mismatch when the channel guarantees the requested size', async () => {
+        await assert.rejects(
+            () =>
+                persistOpenAiImages({
+                    result: { data: [{ b64_json: WIDE_PNG_BASE64 }] } as OpenAI.Images.ImagesResponse,
+                    outputFormat: 'webp',
+                    storageMode: 'indexeddb',
+                    includeBase64: true,
+                    normalizeOutputFormat: true,
+                    targetDimensions: { width: 1024, height: 1024 }
+                }),
+            (error) => {
+                assert.ok(error instanceof ImageDimensionMismatchError);
+                assert.deepEqual(error.expected, { width: 1024, height: 1024 });
+                assert.deepEqual(error.actual, { width: 100, height: 80 });
+                return true;
+            }
+        );
+    });
+
+    it('accepts the upstream size instead of failing when the channel declares upstream_controlled', async () => {
+        const [image] = await persistOpenAiImages({
+            result: { data: [{ b64_json: WIDE_PNG_BASE64 }] } as OpenAI.Images.ImagesResponse,
+            outputFormat: 'webp',
+            storageMode: 'indexeddb',
+            includeBase64: true,
+            normalizeOutputFormat: true,
+            targetDimensions: { width: 1024, height: 1024 },
+            enforceTargetDimensions: false
+        });
+
+        // 不缩放：保留上游真实尺寸，并把真实尺寸如实上报。
+        assert.equal(image.width, 100);
+        assert.equal(image.height, 80);
+        assert.equal(image.outputFormat, 'webp');
+        assert.equal(image.filename.endsWith('.webp'), true);
     });
 });

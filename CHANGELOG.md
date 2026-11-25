@@ -9,12 +9,28 @@
 ### 新增
 
 - 增加模型目录 API、渠道模型白名单和 `/models` 主动探测，工作台与 Agent Skill 可读取配置声明并按渠道能力选择模型。
+- 新增图像模型族登记表 `src/lib/image-model-family.ts`，把尺寸语义、透明背景与编辑支持从散落的模型名硬编码收敛为一张声明式表；已登记 OpenAI gpt-image 系、DALL·E、Gemini 图像、Imagen、FLUX、Seedream、Qwen-Image、SD/SDXL、Recraft、Ideogram、Midjourney 和 NovelAI，未登记模型仍按 provider_defined 处理。
+- 模型目录条目新增 `family`、`family_label`、`supports_edit`、`allow_transparent_background` 和 `recommended_presets`，Agent 端无需自行维护模型清单。
+- 新增 `gpt-image-2.6` 模型族（`gpt-image-2.6-flare`、`gpt-image-2.6-sunburst`），费率与 2.5 一致。2.6 的 `complexity` 规划算力控制已接入 Agent 生成契约：仅 2.6 族放行 `low`/`medium`/`high`，省略时不向上游发送；其他族传入该字段会明确报错而不是静默丢弃。
+- 2.6 的 `markup` 标注引导编辑、`svg` 矢量输出与 `gif` 动画输出（含 `frame_count`、`frame_duration_ms`）暂未代理：输出格式白名单仍只有 png/jpeg/webp，产物管线建立在栅格图之上。这些上游能力通过 `/api/agent/models` 的 `upstream_only_capabilities` 如实披露，避免调用方误以为本服务已支持。
+- 新增 `xai-grok-imagine`（`grok-imagine`、`grok-imagine-edit`、`grok-imagine-image*`）与 `z-image` 两个模型族，此前它们会落到 `custom` 分支，导致尺寸语义、编辑支持与能力声明全部失准。
+- 质量档判定改为由模型族登记表驱动：族表新增 `extendedQualityTiers`，只有声明扩展档的族（2.5、2.6）才放宽到 `xhigh`/`max`，其余族保持 `low`/`medium`/`high`/`auto`；登记表若声明了契约常量之外的档位会被忽略，不会放宽出新的未声明取值。
+- 新增 `IMAGE_MODEL_LIFECYCLES`，按模型 id 记录官方关停计划（`gpt-image-1` 已于 2026-10-23 关停，`gpt-image-1.5`/`gpt-image-1-mini` 于 2026-12-01 关停，`gpt-image-2` 于 2027-02-10 关停，`dall-e-2`/`dall-e-3` 已于 2026-05-12 关停），`/api/agent/models` 的 `known_models[]` 会带出 `lifecycle` 字段用于提示迁移。
+- 模型目录条目新增 `extended_quality_tiers`、`supports_complexity`、`upstream_only_capabilities` 与 `lifecycle`，调用方无需自行维护模型能力清单，也能区分本服务已代理与仅上游支持的能力。
+- 新增渠道级输出尺寸策略 `output_dimensions`（`requested` | `upstream_controlled`），可在 `OPENAI_CHANNEL_N_PROVIDER_MANIFEST` 中声明。部分中转渠道会忽略请求中的 `size` 恒定返回固定尺寸，此前这类渠道只要显式指定尺寸就会收到 `image_dimension_mismatch`；声明 `upstream_controlled` 后服务端不再缩放，直接接受上游真实尺寸并把 `width`/`height` 如实写进结果，能力接口同步暴露 `output_dimensions` 与说明。
+- 渠道忽略 `n` 时可如实声明 `constraints.generate_count` / `edit_count`，例如 `{"min":1,"max":1}`，把多图请求在契约层提前拒绝；此前 `n=3` 只返回 1 张却不报错，属于会被误判为丢图的静默降级。
+- 新增 `docs/product/image-model-families.md`，说明登记表的三种尺寸语义、已登记模型族、能力字段含义与 2.5 系的官方约束。
 - 增加跨域图片结果的 HTTPS、DNS、代理和响应大小安全校验，并补充内容安全策略和安全响应头。
+- DSH 插件新增编辑、批量、产物分享和统一诊断工具；生成与编辑结果以 DSH 图片附件返回，计费与分享调用接入 DSH 审批，并注册运行时 skill 说明调用规则。
 
 ### 变更
 
 - 统一 `gpt-image-2` 为兼容性默认图片模型；`OPENAI_IMAGE_MODEL`、渠道模型声明和 provider-defined 尺寸继续支持自定义模型。
+- 新增 `gpt-image-2.5`、`gpt-image-2.5-flare`、`gpt-image-2.5-sunburst` 三个 OpenAI 官方图像模型：按官方文档与 `gpt-image-2` 相同的尺寸约束（16 倍数、1:3~~3:1、单边 ≤3840、总像素 655,360~~8,294,400）处理，并新增 `xhigh`、`max` 两个质量档；默认模型选项、成本面板与历史尺寸回填同步纳入，官方定价与 `gpt-image-2` 的 token 三档一致；`gpt-image-2-1k` 仍是项目内 1K 别名。
+- 渠道合成为多个渠道共用时，只有当所有渠道都声明 `upstream_controlled` 才整体放宽输出尺寸策略；只要有一个渠道保证按请求尺寸出图，合并结果仍保持严格契约，避免被宽松渠道带偏。
+- 尺寸与透明背景校验改由模型族登记表驱动：legacy 白名单族（gpt-image-1 系、DALL·E 系）保留预设尺寸限制，其余族与未登记模型只做本地资源上限保护，语义交给上游。
 - DSH 插件改用标准 YAML 配置，支持 `AGENT_API_TOKEN` 与环境 URL 覆盖，并补齐模型、代理、错误和任务轮询说明。
+- DSH 插件升级到 0.2.0，声明 `engines.dsh` 为 `>=0.2.1-rc.5 <0.3.0-0` 以通过 DSH 安装期兼容性检查。上界写成 `<0.3.0-0` 而不是 `<0.3.0`，是因为 DSH 门禁按 `includePrerelease` 比较，`<0.3.0` 会放行 `0.3.0-alpha.1`、`0.3.0-rc.1` 这类未实测的预发布版；`<0.3.0-0` 才能把它们全部挡在外面。`dsh-tools` 对等依赖同步改用同一区间（原来是逐个版本的硬白名单，每发一版 DSH 就要跟着改），两个依赖改为 optional 以免宿主缺失时安装告警。工具参数不再暴露服务端拥有的 `stream_mode`、`streaming_strategy` 和 `force_request`，编辑源图改由 DSH 文件系统读取。
 - Agent、页面 API、运行时能力、OpenAPI 与 Skill 脚本的错误分类、鉴权、请求方式和渠道路由契约保持一致。
 - 新增渠道能力矩阵的用户确认门禁；四种方式固定实测，默认仅启用 `images-non-stream`，其他通过方式必须显式选择。
 
@@ -43,6 +59,7 @@
 ### 修复
 
 - 修复非流式图片响应、混合渠道范围不相交和后端默认值处理，避免能力接口 500、合法请求误报 422/503、自动默认值选择错误和冷却渠道误选。
+- 修复 DSH 插件两处健壮性问题：网络不可达时错误对象只是裸 `TypeError: fetch failed`，不带 `code`/`retryable`，而插件把自己的 skill 说明写成「按 `code`、`retryable`、`retry_after_seconds` 决策，不要解析错误文案」，模型据此无从判断该不该重试；现在传输失败统一包装为 `code: network`、`retryable: true` 并带上 `ECONNREFUSED` 这类底层原因，调用方主动取消时仍原样抛出，不计为可重试失败。另修门禁测试：找不到 DSH 时三条兼容性断言会被静默跳过、整套测试仍以退出码 0 通过，等于门禁从未生效；改为缺 DSH 时明确失败。
 - 修复页面与 Agent 编辑路径遗漏图片数量、源图文件大小、总上传量、遮罩、背景和尺寸限制的问题。
 - 修复分享错误、批量提示词超限、历史记录成本与结果操作状态、窄屏布局和本地化文案等工作台回归问题。
 - 将 `brace-expansion`、`js-yaml` 和 `nanoid` 更新到安全版本，并通过 npm override 固定受影响依赖版本。

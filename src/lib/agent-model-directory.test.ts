@@ -182,7 +182,7 @@ describe('agent model directory', () => {
         assert.equal(literal.channels[0]?.error_code, 'request_failed');
     });
 
-    it('keeps custom model metadata generic', () => {
+    it('classifies known third-party model families while keeping provider-defined sizing', () => {
         const directory = buildAgentModelDirectory({
             OPENAI_CHANNEL_1_ID: 'images',
             OPENAI_CHANNEL_1_BASE_URL: 'https://images.example/v1',
@@ -197,7 +197,35 @@ describe('agent model directory', () => {
                 custom: true,
                 status: 'declared',
                 size_policy: 'provider_defined',
-                strict_dimensions: false
+                strict_dimensions: false,
+                family: 'novelai',
+                family_label: 'NovelAI Diffusion',
+                supports_edit: false,
+                allow_transparent_background: null
+            }
+        );
+    });
+
+    it('keeps unregistered custom models on the generic provider-defined profile', () => {
+        const directory = buildAgentModelDirectory({
+            OPENAI_CHANNEL_1_ID: 'images',
+            OPENAI_CHANNEL_1_BASE_URL: 'https://images.example/v1',
+            OPENAI_CHANNEL_1_API_KEYS: 'key',
+            OPENAI_CHANNEL_1_MODELS: 'my-private-image-model'
+        });
+        assert.deepEqual(
+            directory.known_models.find((entry) => entry.id === 'my-private-image-model'),
+            {
+                id: 'my-private-image-model',
+                source: 'configured',
+                custom: true,
+                status: 'declared',
+                size_policy: 'provider_defined',
+                strict_dimensions: false,
+                family: 'custom',
+                family_label: '未登记的自定义模型',
+                supports_edit: true,
+                allow_transparent_background: null
             }
         );
     });
@@ -220,14 +248,20 @@ describe('agent model directory', () => {
 
     it('derives the configured legacy default model size policy', () => {
         const directory = buildAgentModelDirectory({ OPENAI_IMAGE_MODEL: 'gpt-image-1' });
-        assert.deepEqual(directory.known_models[0], {
-            id: 'gpt-image-1',
-            source: 'project_default',
-            custom: false,
-            status: 'declared',
-            size_policy: 'legacy_allowlist',
-            strict_dimensions: false
-        });
+        const entry = directory.known_models[0];
+        assert.equal(entry?.id, 'gpt-image-1');
+        assert.equal(entry?.source, 'project_default');
+        assert.equal(entry?.custom, false);
+        assert.equal(entry?.status, 'declared');
+        assert.equal(entry?.size_policy, 'legacy_allowlist');
+        assert.equal(entry?.strict_dimensions, false);
+        assert.equal(entry?.family, 'openai-gpt-image-1');
+        assert.equal(entry?.supports_edit, true);
+        assert.deepEqual(entry?.recommended_presets, [
+            { name: 'square', size: '1024x1024', purpose: '通用正方形构图' },
+            { name: 'landscape', size: '1536x1024', purpose: '横向构图' },
+            { name: 'portrait', size: '1024x1536', purpose: '纵向构图' }
+        ]);
     });
 
     it('rejects oversized model probe responses', async () => {

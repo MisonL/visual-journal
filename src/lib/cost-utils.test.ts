@@ -2,11 +2,14 @@ import {
     calculateApiCost,
     getModelRates,
     GPT_IMAGE_MODELS,
+    isGptImage25Model,
+    isGptImage26Model,
     isGptImage2Model,
     isGptImageModel,
     isNonNegativeFiniteNumber,
     isNonNegativeSafeInteger,
-    isValidCostDetails
+    isValidCostDetails,
+    RATED_IMAGE_MODELS
 } from './cost-utils';
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
@@ -97,5 +100,25 @@ describe('cost-utils', () => {
         } finally {
             console.error = originalConsoleError;
         }
+    });
+});
+
+describe('gpt-image-2.6 rates', () => {
+    it('shares the 2.5 token tiers because the official model pages list identical rates', () => {
+        for (const model of ['gpt-image-2.6-flare', 'gpt-image-2.6-sunburst']) {
+            const rates = getModelRates(model);
+            assert.ok(rates, `${model} 必须有费率，否则成本面板会静默留空`);
+            assert.equal(rates.imageOutputPerMillion, 30);
+            assert.equal(rates.imageInputPerMillion, 8);
+            assert.equal(rates.textInputPerMillion, 5);
+        }
+        assert.deepEqual(getModelRates('gpt-image-2.6-flare'), getModelRates('gpt-image-2.5-flare'));
+    });
+
+    it('is rated and recognized as the newest family', () => {
+        assert.ok((RATED_IMAGE_MODELS as readonly string[]).includes('gpt-image-2.6-flare'));
+        assert.equal(isGptImage26Model('gpt-image-2.6-sunburst'), true);
+        assert.equal(isGptImage26Model('gpt-image-2.5-sunburst'), false);
+        assert.equal(isGptImage25Model('gpt-image-2.6-sunburst'), false);
     });
 });

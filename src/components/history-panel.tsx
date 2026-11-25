@@ -18,7 +18,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import {
     getModelRates,
-    GPT_IMAGE_MODELS,
+    RATED_IMAGE_MODELS,
     isGptImageModel,
     isNonNegativeFiniteNumber,
     isValidCostDetails
@@ -472,7 +472,7 @@ function HistoryPanelImpl({
                                     </DialogDescription>
                                 </DialogHeader>
                                 <div className='text-muted-foreground space-y-1 pt-1 text-xs'>
-                                    {GPT_IMAGE_MODELS.map((model) => {
+                                    {RATED_IMAGE_MODELS.map((model) => {
                                         const rates = getModelRates(model);
                                         if (!rates) return null;
                                         return (

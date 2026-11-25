@@ -215,6 +215,11 @@ export async function persistOpenAiImages(options: {
     includeBase64: boolean;
     normalizeOutputFormat?: boolean;
     targetDimensions?: RequestedImageDimensions;
+    /**
+     * 渠道声明不遵循请求尺寸时置为 false：接受上游真实尺寸，
+     * 不缩放、不因宽高比偏差报错，并把真实尺寸如实写进结果。
+     */
+    enforceTargetDimensions?: boolean;
     batchId?: string;
     apiBaseUrl?: string;
     apiKey?: string;
@@ -255,9 +260,10 @@ export async function persistOpenAiImages(options: {
             throw new MissingOpenAiImageDataError(index, result);
         }
         const sourceBuffer = Buffer.from(b64Json, 'base64');
+        const targetDimensions = options.enforceTargetDimensions === false ? undefined : options.targetDimensions;
         const buffer =
-            options.normalizeOutputFormat || options.targetDimensions
-                ? await normalizeImageBuffer(sourceBuffer, options.outputFormat, options.targetDimensions)
+            options.normalizeOutputFormat || targetDimensions
+                ? await normalizeImageBuffer(sourceBuffer, options.outputFormat, targetDimensions)
                 : sourceBuffer;
         const detectedFormat = detectImageFormat(buffer, options.outputFormat);
         const filename = createImageFilename(batchId, index, detectedFormat.outputFormat);

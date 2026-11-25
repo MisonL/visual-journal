@@ -6,7 +6,9 @@ import {
     AGENT_MODELS,
     AGENT_OUTPUT_FORMATS,
     AGENT_PAGE_SSE_AGENT_USAGE,
+    AGENT_COMPLEXITY_LEVELS,
     AGENT_QUALITIES,
+    AGENT_GPT_IMAGE_25_QUALITIES,
     AGENT_RESPONSE_MODES,
     AGENT_STREAM_MODES,
     AGENT_STREAMING_STRATEGIES,
@@ -598,7 +600,38 @@ export function buildAgentOpenApiDocument(env: Record<string, string | undefined
                                         type: 'string',
                                         enum: ['provider_defined', 'legacy_allowlist']
                                     },
-                                    strict_dimensions: { type: 'boolean' }
+                                    strict_dimensions: { type: 'boolean' },
+                                    family: {
+                                        type: 'string',
+                                        description: '模型族标识；未登记模型为 custom。'
+                                    },
+                                    family_label: {
+                                        type: 'string',
+                                        description: '模型族展示名，用于客户端提示。'
+                                    },
+                                    supports_edit: {
+                                        type: 'boolean',
+                                        description: '该模型族是否支持以图生图的编辑入口。'
+                                    },
+                                    allow_transparent_background: {
+                                        type: ['boolean', 'null'],
+                                        description:
+                                            'null 表示本地不判断、由上游裁决；false 表示该族官方不支持透明背景。'
+                                    },
+                                    recommended_presets: {
+                                        type: 'array',
+                                        description: '族内推荐尺寸，仅作建议，不构成本地硬校验。',
+                                        items: {
+                                            type: 'object',
+                                            required: ['name', 'size', 'purpose'],
+                                            properties: {
+                                                name: { type: 'string' },
+                                                size: { type: 'string' },
+                                                purpose: { type: 'string' }
+                                            },
+                                            additionalProperties: false
+                                        }
+                                    }
                                 },
                                 additionalProperties: false
                             }
@@ -663,6 +696,8 @@ export function buildAgentOpenApiDocument(env: Record<string, string | undefined
                         'endpoints',
                         'image_transport',
                         'upstream_profile',
+                        'output_dimensions',
+                        'output_dimensions_note',
                         'upstream_request_headers',
                         'request_mode_controls',
                         'defaults',
@@ -1000,6 +1035,13 @@ export function buildAgentOpenApiDocument(env: Record<string, string | undefined
                             },
                             additionalProperties: false
                         },
+                        output_dimensions: {
+                            type: 'string',
+                            enum: ['requested', 'upstream_controlled'],
+                            description:
+                                'requested：服务端把上游图片归一到请求尺寸；upstream_controlled：渠道不保证按 size 出图，接受上游真实尺寸。'
+                        },
+                        output_dimensions_note: { type: 'string' },
                         model_limits: { $ref: '#/components/schemas/AgentModelLimits' },
                         model_directory: {
                             type: 'object',
@@ -1044,6 +1086,7 @@ export function buildAgentOpenApiDocument(env: Record<string, string | undefined
                                 'output_formats',
                                 'response_modes',
                                 'qualities',
+                                'gpt_image_25_qualities',
                                 'backgrounds',
                                 'moderations',
                                 'legacy_sizes',
@@ -1065,6 +1108,11 @@ export function buildAgentOpenApiDocument(env: Record<string, string | undefined
                                     items: { type: 'string', enum: AGENT_RESPONSE_MODES }
                                 },
                                 qualities: { type: 'array', items: { type: 'string', enum: AGENT_QUALITIES } },
+                                gpt_image_25_qualities: {
+                                    type: 'array',
+                                    items: { type: 'string', enum: AGENT_GPT_IMAGE_25_QUALITIES },
+                                    description: 'gpt-image-2.5 族额外支持的扩展质量档。'
+                                },
                                 backgrounds: { type: 'array', items: { type: 'string', enum: AGENT_BACKGROUNDS } },
                                 moderations: { type: 'array', items: { type: 'string', enum: AGENT_MODERATIONS } },
                                 legacy_sizes: { type: 'array', items: { type: 'string' } },
@@ -2021,6 +2069,12 @@ export function buildAgentOpenApiDocument(env: Record<string, string | undefined
                         },
                         size: { type: 'string' },
                         quality: { type: 'string', enum: AGENT_QUALITIES, default: 'high' },
+                        complexity: {
+                            type: 'string',
+                            enum: AGENT_COMPLEXITY_LEVELS,
+                            description:
+                                '仅 gpt-image-2.6 族支持；控制渲染前的规划算力，与 quality 正交，省略时由上游使用默认 high。'
+                        },
                         output_format: { type: 'string', enum: AGENT_OUTPUT_FORMATS },
                         output_compression: { type: 'integer', minimum: 0, maximum: 100 },
                         background: { type: 'string', enum: AGENT_BACKGROUNDS },

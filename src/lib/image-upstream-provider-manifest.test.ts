@@ -93,7 +93,8 @@ describe('image upstream provider manifest', () => {
             gptImage2: {
                 allowTransparentBackground: true,
                 sizePolicy: 'positive-integer'
-            }
+            },
+            outputDimensions: 'requested'
         });
     });
 
@@ -200,5 +201,66 @@ describe('image upstream provider manifest', () => {
                 }),
             /upload\.max_total_bytes 不能大于 104857600/
         );
+    });
+});
+
+describe('output dimension policy declaration', () => {
+    it('defaults to requested so unverified channels keep the strict contract', () => {
+        const manifest = parseImageProviderManifest(
+            JSON.stringify({
+                id: 'plain',
+                modes: { generate: { submit: { path: '/images/generations' } } }
+            })
+        );
+
+        assert.equal(createProviderManifestProfile(manifest).outputDimensions, 'requested');
+    });
+
+    it('lets a channel declare upstream_controlled instead of guessing by hostname', () => {
+        const manifest = parseImageProviderManifest(
+            JSON.stringify({
+                id: 'fixed_size_relay',
+                base_profile: 'openai-compatible',
+                modes: { generate: { submit: { path: '/images/generations' } } },
+                constraints: { output_dimensions: 'upstream_controlled' }
+            })
+        );
+
+        assert.equal(createProviderManifestProfile(manifest).outputDimensions, 'upstream_controlled');
+    });
+
+    it('rejects unknown values instead of silently treating them as requested', () => {
+        assert.throws(
+            () =>
+                parseImageProviderManifest(
+                    JSON.stringify({
+                        id: 'bad_value',
+                        modes: { generate: { submit: { path: '/images/generations' } } },
+                        constraints: { output_dimensions: 'sometimes' }
+                    })
+                ),
+            /constraints.output_dimensions/
+        );
+    });
+});
+
+describe('single-output relay declarations', () => {
+    it('combines output_dimensions with a one-image cap so n>1 is rejected instead of silently trimmed', () => {
+        const manifest = parseImageProviderManifest(
+            JSON.stringify({
+                id: 'single_out',
+                modes: { generate: { submit: { path: '/images/generations' } } },
+                constraints: {
+                    output_dimensions: 'upstream_controlled',
+                    generate_count: { min: 1, max: 1 },
+                    edit_count: { min: 1, max: 1 }
+                }
+            })
+        );
+        const profile = createProviderManifestProfile(manifest);
+
+        assert.deepEqual(profile.generateCount, { min: 1, max: 1 });
+        assert.deepEqual(profile.editCount, { min: 1, max: 1 });
+        assert.equal(profile.outputDimensions, 'upstream_controlled');
     });
 });

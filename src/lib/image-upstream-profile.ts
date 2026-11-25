@@ -68,7 +68,17 @@ export type ImageUpstreamProfile = {
         allowTransparentBackground: boolean;
         sizePolicy: 'openai-compatible' | 'positive-integer';
     };
+    /**
+     * 上游是否按请求尺寸出图。
+     *
+     * `requested`（默认）：服务端把上游返回的图片归一到请求尺寸，宽高比偏差过大时报错。
+     * `upstream_controlled`：渠道明确声明不保证遵循 `size`（部分中转渠道固定返回某个尺寸）。
+     * 此时服务端不尝试缩放，直接接受上游真实尺寸并如实上报，避免把渠道行为误判为故障。
+     */
+    outputDimensions: ImageOutputDimensionPolicy;
 };
+
+export type ImageOutputDimensionPolicy = 'requested' | 'upstream_controlled';
 
 export type ImageUpstreamProfileSummary = {
     activeProfile: ImageUpstreamProfileId;
@@ -97,7 +107,8 @@ export const IMAGE_UPSTREAM_PROFILES: Record<ImageUpstreamProfileId, ImageUpstre
         gptImage2: {
             allowTransparentBackground: false,
             sizePolicy: 'openai-compatible'
-        }
+        },
+        outputDimensions: 'requested'
     },
     matsca: {
         id: 'matsca',
@@ -112,7 +123,8 @@ export const IMAGE_UPSTREAM_PROFILES: Record<ImageUpstreamProfileId, ImageUpstre
         gptImage2: {
             allowTransparentBackground: true,
             sizePolicy: 'positive-integer'
-        }
+        },
+        outputDimensions: 'requested'
     }
 };
 
@@ -319,7 +331,11 @@ export function combineImageUpstreamProfiles(profiles: ImageUpstreamProfile[]): 
             sizePolicy: profiles.every((profile) => profile.gptImage2.sizePolicy === 'positive-integer')
                 ? 'positive-integer'
                 : 'openai-compatible'
-        }
+        },
+        // 混合渠道时，只要有一个渠道保证按请求尺寸出图，就不能整体放宽。
+        outputDimensions: profiles.every((profile) => profile.outputDimensions === 'upstream_controlled')
+            ? 'upstream_controlled'
+            : 'requested'
     };
 }
 

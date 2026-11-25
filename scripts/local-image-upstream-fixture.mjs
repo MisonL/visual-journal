@@ -157,7 +157,10 @@ function imagesResponse(body) {
         },
         fixture_request: {
             model: typeof body.model === 'string' ? body.model : undefined,
-            stream: body.stream === true
+            stream: body.stream === true,
+            size: typeof body.size === 'string' ? body.size : undefined,
+            quality: typeof body.quality === 'string' ? body.quality : undefined,
+            background: typeof body.background === 'string' ? body.background : undefined
         }
     };
 }
@@ -181,6 +184,10 @@ function modelsResponse() {
         object: 'list',
         data: [
             { id: 'gpt-image-2', object: 'model', owned_by: 'fixture' },
+            { id: 'gpt-image-2.5', object: 'model', owned_by: 'fixture' },
+            { id: 'gpt-image-2.5-flare', object: 'model', owned_by: 'fixture' },
+            { id: 'gpt-image-2.5-sunburst', object: 'model', owned_by: 'fixture' },
+            { id: 'gemini-3.1-flash-image', object: 'model', owned_by: 'fixture' },
             { id: 'gpt-5.4', object: 'model', owned_by: 'fixture' }
         ]
     };

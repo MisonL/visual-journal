@@ -1645,6 +1645,77 @@ describe('buildAgentCapabilities', () => {
         assert.equal(capabilities.storage.postgres_configured, false);
     });
 
+    it('accepts gpt-image-2.6 with its own quality ceiling but keeps older models capped', () => {
+        const next = validateAgentGenerateRequest({
+            prompt: 'a cat',
+            model: 'gpt-image-2.6-sunburst',
+            quality: 'max'
+        });
+        assert.equal(next.quality, 'max');
+
+        // 2 与更早的模型仍必须被基础四档拦住，不能被 2.6 的声明带偏。
+        assert.throws(
+            () => validateAgentGenerateRequest({ prompt: 'a cat', model: 'gpt-image-2', quality: 'max' }),
+            /quality/
+        );
+        assert.throws(
+            () => validateAgentGenerateRequest({ prompt: 'a cat', model: 'grok-imagine', quality: 'xhigh' }),
+            /quality/
+        );
+    });
+
+    it('accepts complexity only for the gpt-image-2.6 family', () => {
+        const accepted = validateAgentGenerateRequest({
+            prompt: 'a cat',
+            model: 'gpt-image-2.6-flare',
+            complexity: 'low'
+        });
+        assert.equal(accepted.complexity, 'low');
+
+        // 不传时不能凭空补默认值，否则调用方无法区分"没设"和"设成 high"。
+        const omitted = validateAgentGenerateRequest({ prompt: 'a cat', model: 'gpt-image-2.6-flare' });
+        assert.equal(omitted.complexity, undefined);
+
+        // 其他族传 complexity 必须报错，不能静默丢弃。
+        assert.throws(
+            () => validateAgentGenerateRequest({ prompt: 'a cat', model: 'gpt-image-2.5-flare', complexity: 'low' }),
+            /complexity/
+        );
+        assert.throws(
+            () => validateAgentGenerateRequest({ prompt: 'a cat', model: 'gpt-image-2', complexity: 'low' }),
+            /complexity/
+        );
+        assert.throws(
+            () => validateAgentGenerateRequest({ prompt: 'a cat', model: 'gpt-image-2.6-flare', complexity: 'ultra' }),
+            /complexity/
+        );
+    });
+
+    it('keeps every AgentCapabilities property in the OpenAPI required list', () => {
+        const document = buildAgentOpenApiDocument({});
+        const capabilitiesSchema = document.components.schemas.AgentCapabilities;
+        const declared = Object.keys(capabilitiesSchema.properties ?? {});
+        const required = capabilitiesSchema.required ?? [];
+
+        // 能力契约新增字段时必须同时补进 required，否则调用方无法判断字段是否一定存在。
+        assert.deepEqual(
+            declared.filter((key) => !required.includes(key)),
+            []
+        );
+    });
+
+    it('exposes the channel output dimension policy in capabilities and OpenAPI', () => {
+        const capabilities = buildAgentCapabilities({});
+        assert.ok(['requested', 'upstream_controlled'].includes(capabilities.output_dimensions));
+        assert.equal(typeof capabilities.output_dimensions_note, 'string');
+        assert.ok(capabilities.output_dimensions_note.length > 0);
+
+        const document = buildAgentOpenApiDocument({});
+        const schema = document.components.schemas.AgentCapabilities.properties.output_dimensions;
+        assert.deepEqual(schema.enum, ['requested', 'upstream_controlled']);
+        assert.ok(document.components.schemas.AgentCapabilities.required.includes('output_dimensions'));
+    });
+
     it('generates an OpenAPI document with the Agent generate endpoint', () => {
         const document = buildAgentOpenApiDocument({ AGENT_PUBLIC_BASE_URL: 'https://images.example.test' });
         assert.equal(document.openapi, '3.1.0');
@@ -2243,3 +2314,97 @@ function restoreProcessEnv(snapshot: NodeJS.ProcessEnv): void {
         process.env[key] = value;
     }
 }
+
+describe('model family adaptation', () => {
+    it('accepts the official gpt-image-2.5 quality tiers and rejects them for other families', () => {
+        const flareRequest = validateAgentGenerateRequest({
+            prompt: 'draw a flare request',
+            model: 'gpt-image-2.5-flare',
+            quality: 'xhigh'
+        });
+        assert.equal(flareRequest.quality, 'xhigh');
+        const sunburstRequest = validateAgentGenerateRequest({
+            prompt: 'draw a sunburst request',
+            model: 'gpt-image-2.5-sunburst',
+            quality: 'max'
+        });
+        assert.equal(sunburstRequest.quality, 'max');
+
+        assert.throws(
+            () => validateAgentGenerateRequest({ prompt: 'draw a base request', model: 'gpt-image-2', quality: 'max' }),
+            /必须是以下值之一：low, medium, high, auto/
+        );
+    });
+
+    it('keeps gpt-image-2.5 on the openai-compatible size contract', () => {
+        assert.equal(
+            validateAgentGenerateRequest({ prompt: 'flare size', model: 'gpt-image-2.5-flare', size: '1536x1024' })
+                .size,
+            '1536x1024'
+        );
+        // 16 倍数约束同样适用于 2.5 族
+        assert.throws(
+            () =>
+                validateAgentGenerateRequest({
+                    prompt: 'bad flare size',
+                    model: 'gpt-image-2.5-flare',
+                    size: '1001x1001'
+                }),
+            /size/
+        );
+    });
+
+    it('recognizes mainstream third-party families as provider-defined with positive-integer sizes', () => {
+        for (const model of ['gemini-3.1-flash-image', 'flux-1.1-pro', 'seedream-4', 'nai-diffusion-5-full']) {
+            const request = validateAgentGenerateRequest({
+                prompt: `third party ${model}`,
+                model,
+                size: '1234x778'
+            });
+            assert.equal(request.size, '1234x778', `${model} 应接受正整数尺寸`);
+        }
+        // 超出本地资源预算仍然拒绝
+        assert.throws(
+            () =>
+                validateAgentGenerateRequest({
+                    prompt: 'too large third party',
+                    model: 'gemini-3.1-flash-image',
+                    size: '9000x9000'
+                }),
+            /size/
+        );
+    });
+
+    it('rejects legacy preset sizes on families that enforce their own allowlist', () => {
+        assert.throws(
+            () => validateAgentGenerateRequest({ prompt: 'dalle size', model: 'dall-e-3', size: '1536x1024' }),
+            /1792x1024/
+        );
+        assert.equal(
+            validateAgentGenerateRequest({ prompt: 'dalle valid', model: 'dall-e-3', size: '1792x1024' }).size,
+            '1792x1024'
+        );
+    });
+
+    it('blocks transparent backgrounds only for families documented as unsupported', () => {
+        assert.throws(
+            () =>
+                validateAgentGenerateRequest({
+                    prompt: 'dalle transparent',
+                    model: 'dall-e-3',
+                    background: 'transparent'
+                }),
+            /transparent/
+        );
+
+        // 其余族（含 NAI）与未登记模型交由渠道能力和上游裁决
+        assert.equal(
+            validateAgentGenerateRequest({
+                prompt: 'custom transparent',
+                model: 'my-private-image-model',
+                background: 'transparent'
+            }).background,
+            'transparent'
+        );
+    });
+});

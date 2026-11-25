@@ -55,6 +55,11 @@ export type ImageProviderManifest = {
             allow_transparent_background?: boolean;
             size_policy?: ImageUpstreamProfile['gptImage2']['sizePolicy'];
         };
+        /**
+         * 声明上游是否遵循请求的 `size`。部分中转渠道会忽略 `size` 固定返回某个尺寸，
+         * 这类渠道应显式声明 `upstream_controlled`，服务端才会接受上游真实尺寸而不报错。
+         */
+        output_dimensions?: ImageUpstreamProfile['outputDimensions'];
     };
 };
 
@@ -226,7 +231,8 @@ export function createProviderManifestProfile(manifest: ImageProviderManifest): 
                 constraints.gpt_image_2?.allow_transparent_background ??
                 baseProfile.gptImage2.allowTransparentBackground,
             sizePolicy: constraints.gpt_image_2?.size_policy || baseProfile.gptImage2.sizePolicy
-        }
+        },
+        outputDimensions: constraints.output_dimensions || baseProfile.outputDimensions
     };
 }
 
@@ -396,9 +402,24 @@ function readConstraintsField(value: unknown): Pick<ImageProviderManifest, 'cons
             ...readOptionalRangeField(constraints, 'edit_count'),
             ...readOptionalRangeField(constraints, 'partial_images'),
             ...readUploadConstraintsField(constraints.upload),
-            ...(gptImage2 ? { gpt_image_2: gptImage2 } : {})
+            ...(gptImage2 ? { gpt_image_2: gptImage2 } : {}),
+            ...readOutputDimensionsField(constraints.output_dimensions)
         }
     };
+}
+
+function readOutputDimensionsField(
+    value: unknown
+): Pick<NonNullable<ImageProviderManifest['constraints']>, 'output_dimensions'> {
+    if (value === undefined) return {};
+    const outputDimensions = readOptionalString({ output_dimensions: value }, 'output_dimensions');
+    if (outputDimensions !== 'requested' && outputDimensions !== 'upstream_controlled') {
+        throw new RequestValidationError(
+            'constraints.output_dimensions 只支持 requested 或 upstream_controlled。',
+            500
+        );
+    }
+    return { output_dimensions: outputDimensions };
 }
 
 function readGptImage2Constraints(value: unknown): NonNullable<ImageProviderManifest['constraints']>['gpt_image_2'] {

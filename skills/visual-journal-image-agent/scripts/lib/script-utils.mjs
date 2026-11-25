@@ -5,7 +5,44 @@ const MAX_RETRY_AFTER_SECONDS = 60;
 const DIGITS_PATTERN = /^\d+$/;
 const IMAGE_SIZE_PATTERN = /^(\d+)x(\d+)$/;
 const LEGACY_IMAGE_SIZES = new Set(['auto', '1024x1024', '1536x1024', '1024x1536']);
+// 与服务端 src/lib/image-model-family.ts 的登记表保持一致：只有 legacy 白名单族
+// 受预设尺寸限制；其余模型族（gpt-image-2/2.5、Gemini、FLUX、Seedream、NAI 等）
+// 一律按 provider_defined 处理，交由上游裁决尺寸。
 const LEGACY_IMAGE_MODELS = new Set(['gpt-image-1', 'gpt-image-1-mini', 'gpt-image-1.5']);
+const LEGACY_IMAGE_SIZES_BY_MODEL = new Map([
+    ['gpt-image-1', LEGACY_IMAGE_SIZES],
+    ['gpt-image-1-mini', LEGACY_IMAGE_SIZES],
+    ['gpt-image-1.5', LEGACY_IMAGE_SIZES],
+    ['dall-e-2', new Set(['auto', '1024x1024'])],
+    ['dall-e-3', new Set(['auto', '1024x1024', '1792x1024', '1024x1792'])]
+]);
+const PROVIDER_DEFINED_MODEL_PREFIXES = [
+    'gpt-image-2.5',
+    'gemini-',
+    'nano-banana',
+    'imagen-',
+    'flux-',
+    'flux.',
+    'seedream',
+    'seededit',
+    'doubao-seedream',
+    'doubao-seededit',
+    'qwen-image',
+    'wanx',
+    'wan2',
+    'wan-',
+    'sd-',
+    'sdxl',
+    'stable-diffusion',
+    'sd3',
+    'recraft',
+    'ideogram',
+    'mj-',
+    'midjourney',
+    'niji',
+    'nai-diffusion',
+    'novelai-'
+];
 const PROVIDER_DEFINED_MAX_EDGE = 8192;
 const PROVIDER_DEFINED_MAX_PIXELS = 67_108_864;
 export const DEFAULT_IMAGE_MODEL = 'gpt-image-2';
@@ -244,7 +281,8 @@ function channelSupportsCommonInput(input, capabilities, channel, operation, bac
     }
     if (input.force_request === true || input.forceRequest === true) return true;
     const model = input.model || capabilities?.defaults?.model || DEFAULT_IMAGE_MODEL;
-    if (!isGptImage2Model(model)) return true;
+    // 只有 openai-compatible 尺寸语义的族需要本地预检；provider_defined 族交由上游裁决。
+    if (!isOpenAiCompatibleSizeFamily(model, capabilities)) return true;
     const gptImage2 = channel.constraints.gpt_image_2;
     const background = input.background || 'auto';
     if (background === 'transparent' && !gptImage2.allow_transparent_background) return false;
@@ -258,6 +296,19 @@ function channelSupportsCommonInput(input, capabilities, channel, operation, bac
 
 function isGptImage2Model(model) {
     return model === 'gpt-image-2' || model === 'gpt-image-2-1k';
+}
+
+// gpt-image-2 系与 gpt-image-2.5 系共用 openai-compatible 尺寸语义；
+// 其余模型（第三方族与未登记模型）按 provider_defined 处理，本地只保留资源预算。
+function isOpenAiCompatibleSizeFamily(model, capabilities) {
+    if (isGptImage2Model(model)) return true;
+    if (isLegacySizeAllowlistModel(model)) return false;
+    if (isGptImage25Model(model)) return true;
+    return Boolean(capabilities?.supported?.models?.includes(model));
+}
+
+function isGptImage25Model(model) {
+    return normalizeImageModelId(model).startsWith('gpt-image-2.5');
 }
 
 function isGptImage2SizeCompatible(size, constraints, capabilities, model) {
@@ -426,20 +477,49 @@ export function normalizeOutputFormat(value) {
     return value.toLowerCase() === 'jpg' ? 'jpeg' : value.toLowerCase();
 }
 
+export function normalizeImageModelId(model) {
+    return typeof model === 'string' ? model.trim().toLowerCase() : '';
+}
+
+/** 是否属于 legacy 预设尺寸白名单族。 */
+export function isLegacySizeAllowlistModel(model) {
+    const normalized = normalizeImageModelId(model);
+    return LEGACY_IMAGE_MODELS.has(normalized) || LEGACY_IMAGE_SIZES_BY_MODEL.has(normalized);
+}
+
+/** 是否属于已登记的 provider_defined 模型族（尺寸语义交给上游）。 */
+export function isProviderDefinedModelFamily(model) {
+    const normalized = normalizeImageModelId(model);
+    if (!normalized) return false;
+    return PROVIDER_DEFINED_MODEL_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+}
+
+/** 用中文顿号列举尺寸选项，最后一项前用“或”，与既有错误文案保持一致。 */
+function formatSizeChoices(sizes) {
+    const list = Array.from(sizes);
+    if (list.length <= 1) return list[0] || '';
+    return `${list.slice(0, -1).join('、')} 或 ${list[list.length - 1]}`;
+}
+
+function readLegacySizesForModel(model) {
+    return LEGACY_IMAGE_SIZES_BY_MODEL.get(normalizeImageModelId(model)) || LEGACY_IMAGE_SIZES;
+}
+
 export function assertValidImageSizeForModel(value, model, label = 'size') {
     if (typeof value !== 'string' || value.trim().length === 0) {
         throw new Error(`${label} 必须是字符串。`);
     }
     if (!isGptImage2Model(model)) {
-        if (!LEGACY_IMAGE_MODELS.has(model)) {
+        if (!isLegacySizeAllowlistModel(model)) {
             if (value === 'auto') return value;
             const size = parseImageSizeValue(value);
             if (!size) throw new Error(`${label} 必须是 auto 或 WIDTHxHEIGHT。`);
             assertPositiveIntegerDimensions(size.width, size.height, label);
             return value;
         }
-        if (!LEGACY_IMAGE_SIZES.has(value)) {
-            throw new Error(`${label} 对模型 ${model} 无效；请使用 auto、1024x1024、1536x1024 或 1024x1536。`);
+        const legacySizes = readLegacySizesForModel(model);
+        if (!legacySizes.has(value)) {
+            throw new Error(`${label} 对模型 ${model} 无效；请使用 ${formatSizeChoices(legacySizes)}。`);
         }
         return value;
     }

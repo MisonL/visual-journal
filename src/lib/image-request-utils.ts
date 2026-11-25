@@ -1,4 +1,6 @@
-import { GPT_IMAGE_MODELS, isGptImage2Model } from './cost-utils';
+import { isGptImage2Model } from './cost-utils';
+import { readFamilyQualityTiers } from './image-model-family';
+import { resolveImageModelFamily } from './image-model-family';
 import { MAX_OPENAI_UPLOAD_BYTES, MAX_PROMPT_LENGTH } from './image-request-limits';
 import {
     IMAGE_UPSTREAM_PROFILES,
@@ -24,6 +26,8 @@ export const DEFAULT_IMAGE_MODEL = 'gpt-image-2';
 export const MAX_MODEL_NAME_LENGTH = 200;
 const VALID_OUTPUT_FORMAT_VALUES = ['png', 'jpeg', 'webp'] as const;
 const VALID_GENERATE_QUALITY_VALUES = ['low', 'medium', 'high', 'auto'] as const;
+// gpt-image-2.5 族额外支持的扩展质量档。
+const VALID_GPT_IMAGE_25_QUALITY_VALUES = ['low', 'medium', 'high', 'xhigh', 'max', 'auto'] as const;
 const VALID_EDIT_QUALITY_VALUES = ['low', 'medium', 'high', 'auto'] as const;
 const VALID_BACKGROUND_VALUES = ['transparent', 'opaque', 'auto'] as const;
 const VALID_MODERATION_VALUES = ['low', 'auto'] as const;
@@ -59,8 +63,8 @@ type PngInfo = ImageDimensions & {
 export type ImageMode = (typeof VALID_MODE_VALUES)[number];
 export type GptImageModel = string;
 export type ValidOutputFormat = (typeof VALID_OUTPUT_FORMAT_VALUES)[number];
-export type GenerateQuality = (typeof VALID_GENERATE_QUALITY_VALUES)[number];
-export type EditQuality = (typeof VALID_EDIT_QUALITY_VALUES)[number];
+export type GenerateQuality = (typeof VALID_GPT_IMAGE_25_QUALITY_VALUES)[number];
+export type EditQuality = (typeof VALID_GPT_IMAGE_25_QUALITY_VALUES)[number];
 export type Background = (typeof VALID_BACKGROUND_VALUES)[number];
 export type Moderation = (typeof VALID_MODERATION_VALUES)[number];
 export type StorageMode = 'fs' | 'indexeddb';
@@ -158,22 +162,25 @@ export function readOutputFormat(formData: FormData): ValidOutputFormat {
     return mapped;
 }
 
-export function readGenerateQuality(formData: FormData): GenerateQuality {
+export function readGenerateQuality(formData: FormData, model?: GptImageModel): GenerateQuality {
     const value = formData.get('quality');
     if (value === null) return 'high';
-    if (typeof value !== 'string' || !isOneOf(value, VALID_GENERATE_QUALITY_VALUES)) {
+    // 质量档由模型族登记表驱动：2.5/2.6 族额外支持 xhigh 与 max，其他模型保持基础档位。
+    const allowed = readFamilyQualityTiers(model, VALID_GENERATE_QUALITY_VALUES, VALID_GPT_IMAGE_25_QUALITY_VALUES);
+    if (typeof value !== 'string' || !(allowed as readonly string[]).includes(value)) {
         throw new RequestValidationError('quality 无效。');
     }
-    return value;
+    return value as GenerateQuality;
 }
 
-export function readEditQuality(formData: FormData): EditQuality {
+export function readEditQuality(formData: FormData, model?: GptImageModel): EditQuality {
     const value = formData.get('quality');
     if (value === null) return 'auto';
-    if (typeof value !== 'string' || !isOneOf(value, VALID_EDIT_QUALITY_VALUES)) {
+    const allowed = readFamilyQualityTiers(model, VALID_EDIT_QUALITY_VALUES, VALID_GPT_IMAGE_25_QUALITY_VALUES);
+    if (typeof value !== 'string' || !(allowed as readonly string[]).includes(value)) {
         throw new RequestValidationError('quality 无效。');
     }
-    return value;
+    return value as EditQuality;
 }
 
 export function readBackground(
@@ -187,13 +194,13 @@ export function readBackground(
     if (typeof value !== 'string' || !isOneOf(value, VALID_BACKGROUND_VALUES)) {
         throw new RequestValidationError('background 无效。');
     }
-    if (
-        !options.forceRequest &&
-        isGptImage2Model(model) &&
-        value === 'transparent' &&
-        !profile.gptImage2.allowTransparentBackground
-    ) {
-        throw new RequestValidationError('gpt-image-2 不支持 transparent 背景。');
+    if (!options.forceRequest && value === 'transparent') {
+        if (resolveImageModelFamily(model).allowTransparentBackground === false) {
+            throw new RequestValidationError(`${model} 不支持 transparent 背景。`);
+        }
+        if (isGptImage2Model(model) && !profile.gptImage2.allowTransparentBackground) {
+            throw new RequestValidationError('gpt-image-2 不支持 transparent 背景。');
+        }
     }
     return value;
 }
@@ -220,51 +227,52 @@ export function readSize(
     if (typeof value !== 'string' || value.trim().length === 0) {
         throw new RequestValidationError(`${field} 必须是字符串。`);
     }
-    const isGptImage2 = isGptImage2Model(model);
-    const isKnownLegacyModel = !isGptImage2 && (GPT_IMAGE_MODELS as readonly string[]).includes(model);
-    const isProviderDefinedModel = !isGptImage2 && !isKnownLegacyModel;
-    if (isKnownLegacyModel && !isOneOf(value, VALID_LEGACY_SIZE_VALUES)) {
-        throw new RequestValidationError(`${field} 对 ${model} 无效：必须是兼容的预设尺寸。`);
+    const family = resolveImageModelFamily(model);
+    // legacy 白名单族（gpt-image-1 系、DALL·E 系）只接受族内预设尺寸。
+    if (family.sizePolicy === 'legacy_allowlist') {
+        const legacySizes = family.legacySizes ?? VALID_LEGACY_SIZE_VALUES;
+        if (!(legacySizes as readonly string[]).includes(value)) {
+            throw new RequestValidationError(
+                `${field} 对 ${model} 无效：必须是以下值之一：${legacySizes.join(', ')}。`
+            );
+        }
+        return value;
     }
-    if ((isGptImage2 || isProviderDefinedModel) && value !== 'auto' && !/^\d+x\d+$/.test(value)) {
+    if (value === 'auto') return value;
+    if (!/^\d+x\d+$/.test(value)) {
         throw new RequestValidationError(`${field} 必须是 auto 或 WxH 格式的尺寸值。`);
     }
-    if ((isGptImage2 || isProviderDefinedModel) && value !== 'auto' && options.forceRequest) {
-        const { width, height } = parseFixedSizeValue(value);
-        const validation = validatePositiveIntegerImageSize(width, height);
-        if (!validation.valid) {
-            throw new RequestValidationError(
-                `${field} 对 ${model} 无效：${isPositiveIntegerDimensionValidation(validation) ? '宽度和高度必须是正整数。' : validation.reason}`
-            );
-        }
+    const { width, height } = parseFixedSizeValue(value);
+    // forceRequest 只保留本地资源预算，语义交由上游裁决。
+    if (options.forceRequest) {
+        assertPositiveIntegerSize({ field, model, width, height });
+        return value;
     }
-    if (
-        (isGptImage2 || isProviderDefinedModel) &&
-        value !== 'auto' &&
-        !options.forceRequest &&
-        (isProviderDefinedModel || profile.gptImage2.sizePolicy === 'positive-integer')
-    ) {
-        const { width, height } = parseFixedSizeValue(value);
-        const validation = validatePositiveIntegerImageSize(width, height);
-        if (!validation.valid) {
-            throw new RequestValidationError(
-                `${field} 对 ${model} 无效：${isPositiveIntegerDimensionValidation(validation) ? '宽度和高度必须是正整数。' : validation.reason}`
-            );
-        }
+    if (family.sizePolicy === 'provider_defined') {
+        assertPositiveIntegerSize({ field, model, width, height });
+        return value;
     }
-    if (
-        isGptImage2 &&
-        value !== 'auto' &&
-        !options.forceRequest &&
-        profile.gptImage2.sizePolicy === 'openai-compatible'
-    ) {
-        const { width, height } = parseFixedSizeValue(value);
-        const validation = validateGptImage2Size(width, height);
-        if (!validation.valid) {
-            throw new RequestValidationError(`${field} 对 ${model} 无效：${validation.reason}`);
-        }
+    // openai_compatible 族（gpt-image-2 系与 gpt-image-2.5 系）默认按 16 倍数、3:1 与像素预算校验；
+    // 渠道 provider manifest 把 size_policy 声明为 positive-integer 时放宽为本地资源预算。
+    if (profile.gptImage2.sizePolicy === 'positive-integer') {
+        assertPositiveIntegerSize({ field, model, width, height });
+        return value;
+    }
+    const validation = validateGptImage2Size(width, height);
+    if (!validation.valid) {
+        throw new RequestValidationError(`${field} 对 ${model} 无效：${validation.reason}`);
     }
     return value;
+}
+
+function assertPositiveIntegerSize(input: { field: string; model: string; width: number; height: number }): void {
+    const validation = validatePositiveIntegerImageSize(input.width, input.height);
+    if (validation.valid) return;
+    throw new RequestValidationError(
+        `${input.field} 对 ${input.model} 无效：${
+            isPositiveIntegerDimensionValidation(validation) ? '宽度和高度必须是正整数。' : validation.reason
+        }`
+    );
 }
 
 function parseFixedSizeValue(value: string): { width: number; height: number } {
