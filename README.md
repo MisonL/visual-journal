@@ -13,7 +13,7 @@ app_port: 4783
 
 图像手记（Visual Journal）是本地优先的 AI 图片创作工作台，支持 `gpt-image-2`、配置的自定义图片模型与 OpenAI 兼容图片接口。提供文生图、图生图、遮罩编辑、批量任务、历史复用、费用追踪、多渠道路由和 Agent API。
 
-对外产品名称、npm 包名和 Agent Skill 标识均为“图像手记 / Visual Journal”（`visual-journal`、`visual-journal-image-agent`）。HF Space 已使用 `visual-journal` 名称；为保持已有部署和自动化客户端兼容，Docker 服务、环境变量和 API 路径继续使用 `gpt-image-playground` 相关技术名称。
+对外产品名称、npm 包名、Docker 镜像与容器标识、Agent Skill 标识均为“图像手记 / Visual Journal”（`visual-journal`、`visual-journal-image-agent`）。HF Space 使用 `visual-journal` 名称，本地容器以 `visual-journal` 命名。`GPT_IMAGE_*` 环境变量与 API 路径保留旧前缀，因为它们是已有自动化客户端的调用契约，改名会静默打断现有集成。
 
 <p align="center">
   <img src="./readme-images/interface.jpg" alt="图像手记主界面" width="900"/>
@@ -148,7 +148,7 @@ npm run deploy:local -- --tun
 部署脚本会拒绝脏工作区，并核对 Docker 健康状态、真实 HTTP 端点和镜像版本。Compose 默认只发布到 `127.0.0.1:4783`；需要局域网访问时先设置 `APP_PASSWORD`，再执行：
 
 ```bash
-GIP_BIND_HOST=0.0.0.0 npm run deploy:local
+VJ_BIND_HOST=0.0.0.0 npm run deploy:local
 ```
 
 文件系统图片保存在 `generated-images/`。若 `.env.local` 将 `WEBUI_IMAGE_AUTO_CLEANUP_ENABLED` 设为 `1`、`true`、`yes` 或 `on`，部署脚本会先拒绝运行，避免服务启动后立即清理历史图片；确认可以执行时显式添加 `--allow-image-auto-cleanup`。自动清理、永久保留和 Agent 产物生命周期配置见 [.env.example](./.env.example)。

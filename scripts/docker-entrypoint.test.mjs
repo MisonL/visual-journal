@@ -15,25 +15,45 @@ describe('Docker Compose access policy', () => {
     it('allows standalone images and loopback Compose deployments without a page password', () => {
         assert.doesNotThrow(() => assertDockerComposeAccessPolicy({}));
         assert.doesNotThrow(() =>
+            assertDockerComposeAccessPolicy({ VJ_COMPOSE_DEPLOYMENT: 'true', VJ_BIND_HOST: '127.0.0.1' })
+        );
+        // Legacy GIP_* names are still accepted so older Compose overrides and CI jobs keep working.
+        assert.doesNotThrow(() =>
             assertDockerComposeAccessPolicy({ GIP_COMPOSE_DEPLOYMENT: 'true', GIP_BIND_HOST: '127.0.0.1' })
+        );
+    });
+
+    it('prefers VJ_* over legacy GIP_* when both are set', () => {
+        // New names win: a VJ_ loopback bind must not be rejected by a stale GIP_ 0.0.0.0.
+        assert.doesNotThrow(() =>
+            assertDockerComposeAccessPolicy({
+                VJ_COMPOSE_DEPLOYMENT: 'true',
+                VJ_BIND_HOST: '127.0.0.1',
+                GIP_COMPOSE_DEPLOYMENT: 'true',
+                GIP_BIND_HOST: '0.0.0.0'
+            })
         );
     });
 
     it('rejects unauthenticated non-loopback Compose deployments', () => {
         assert.throws(
-            () => assertDockerComposeAccessPolicy({ GIP_COMPOSE_DEPLOYMENT: 'true', GIP_BIND_HOST: '0.0.0.0' }),
+            () => assertDockerComposeAccessPolicy({ VJ_COMPOSE_DEPLOYMENT: 'true', VJ_BIND_HOST: '0.0.0.0' }),
             /APP_PASSWORD/
         );
         assert.throws(
-            () => assertDockerComposeAccessPolicy({ GIP_COMPOSE_DEPLOYMENT: ' TRUE ', GIP_BIND_HOST: '0.0.0.0' }),
+            () => assertDockerComposeAccessPolicy({ VJ_COMPOSE_DEPLOYMENT: ' TRUE ', VJ_BIND_HOST: '0.0.0.0' }),
             /APP_PASSWORD/
         );
         assert.doesNotThrow(() =>
             assertDockerComposeAccessPolicy({
-                GIP_COMPOSE_DEPLOYMENT: 'true',
-                GIP_BIND_HOST: '10.0.90.200',
+                VJ_COMPOSE_DEPLOYMENT: 'true',
+                VJ_BIND_HOST: '10.0.90.200',
                 APP_PASSWORD: 'access-code'
             })
+        );
+        assert.throws(
+            () => assertDockerComposeAccessPolicy({ GIP_COMPOSE_DEPLOYMENT: 'true', GIP_BIND_HOST: '0.0.0.0' }),
+            /APP_PASSWORD/
         );
     });
 });

@@ -3,8 +3,8 @@ import { spawnSync } from 'node:child_process';
 
 import { readPositiveIntegerEnv } from './env-utils.mjs';
 
-const imageName = process.env.HF_SPACE_SMOKE_IMAGE || 'gpt-image-playground:hf-space-memory-smoke';
-const containerName = process.env.HF_SPACE_SMOKE_CONTAINER || 'gpt-image-playground-hf-space-smoke';
+const imageName = process.env.HF_SPACE_SMOKE_IMAGE || 'visual-journal:hf-space-memory-smoke';
+const containerName = process.env.HF_SPACE_SMOKE_CONTAINER || 'visual-journal-hf-space-smoke';
 const parsedHostPort = readPositiveIntegerEnv('HF_SPACE_SMOKE_PORT', 4785);
 if (parsedHostPort > 65_535) {
   throw new Error('HF_SPACE_SMOKE_PORT must be less than or equal to 65535');

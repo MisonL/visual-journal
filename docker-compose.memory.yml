@@ -1,5 +1,5 @@
 services:
-  gpt-image-playground:
+  visual-journal:
     build:
       args:
         NEXT_PUBLIC_IMAGE_STORAGE_MODE: indexeddb

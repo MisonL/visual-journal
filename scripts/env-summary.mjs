@@ -204,7 +204,7 @@ function readOptionValue(argv, index, name) {
 function printHelp() {
     console.log(`Usage:
   node scripts/env-summary.mjs
-  node scripts/env-summary.mjs --file .env.local --container gpt-image-playground-customer
+  node scripts/env-summary.mjs --file .env.local --container visual-journal
   node scripts/env-summary.mjs --file-if-exists .env.agent.local
 
 Output is always redacted. It reports variable names, whether values are set, secret item counts, and URL hosts only.`);

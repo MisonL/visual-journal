@@ -547,8 +547,8 @@ describe('Command center scripts', () => {
             {
                 PATH: '/bin',
                 COMPOSE_PROGRESS: 'plain',
-                GIP_IMAGE_REVISION: '0123456789abcdef0123456789abcdef01234567',
-                GIP_IMAGE_TAG: 'local-0123456789abcdef0123456789abcdef01234567'
+                VJ_IMAGE_REVISION: '0123456789abcdef0123456789abcdef01234567',
+                VJ_IMAGE_TAG: 'local-0123456789abcdef0123456789abcdef01234567'
             }
         );
     });
@@ -620,7 +620,7 @@ if [ "$1" = "compose" ]; then
 fi
 if [ "$1" = "inspect" ]; then
   case "$3" in
-    *Config.Image*) printf '%s\\n' 'gpt-image-playground-customer:local-0123456789abcdef0123456789abcdef01234567' ;;
+    *Config.Image*) printf '%s\\n' 'visual-journal:local-0123456789abcdef0123456789abcdef01234567' ;;
     *NetworkSettings.Ports*) printf '%s\\n' '[{"HostIp":"127.0.0.1","HostPort":"4783"}]' ;;
     *) exit 1 ;;
   esac
@@ -663,7 +663,7 @@ exit 1
     it('uses immutable full-revision Docker image tags for deploys', () => {
         const revision = '0123456789abcdef0123456789abcdef01234567';
         assert.equal(buildDeploymentImageTag(revision), `local-${revision}`);
-        assert.equal(buildDeploymentImageReference(revision), `gpt-image-playground-customer:local-${revision}`);
+        assert.equal(buildDeploymentImageReference(revision), `visual-journal:local-${revision}`);
         assert.throws(() => buildDeploymentImageTag('0123456'), /40/);
         assert.throws(() => buildDeploymentImageTag('z'.repeat(40)), /40/);
     });
@@ -745,7 +745,7 @@ exit 1
         assert.doesNotThrow(() =>
             assertDeploymentImageIdentity(
                 {
-                    image: 'gpt-image-playground-customer:local-0123456789abcdef0123456789abcdef01234567',
+                    image: 'visual-journal:local-0123456789abcdef0123456789abcdef01234567',
                     revision: deployment.revision
                 },
                 deployment
@@ -754,7 +754,7 @@ exit 1
         assert.throws(
             () =>
                 assertDeploymentImageIdentity(
-                    { image: 'gpt-image-playground-customer:local', revision: deployment.revision },
+                    { image: 'visual-journal:local', revision: deployment.revision },
                     deployment
                 ),
             /镜像不匹配/
@@ -763,7 +763,7 @@ exit 1
             () =>
                 assertDeploymentImageIdentity(
                     {
-                        image: 'gpt-image-playground-customer:local-0123456789abcdef0123456789abcdef01234567',
+                        image: 'visual-journal:local-0123456789abcdef0123456789abcdef01234567',
                         revision: 'different'
                     },
                     deployment
@@ -773,7 +773,7 @@ exit 1
     });
 
     it('detects only the legacy fixture whole-repository Docker mount', () => {
-        const repoRoot = '/Volumes/Work/code/gpt-image-playground-customer';
+        const repoRoot = '/Volumes/Work/code/visual-journal';
         assert.equal(
             hasLegacyFixtureRepoMount(
                 [

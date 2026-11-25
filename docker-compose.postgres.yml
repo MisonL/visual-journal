@@ -1,9 +1,9 @@
-name: gpt-image-playground-customer
+name: visual-journal
 
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: gpt-image-playground-postgres
+    container_name: visual-journal-postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: gpt_image_playground
@@ -19,7 +19,7 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
 
-  gpt-image-playground:
+  visual-journal:
     environment:
       AGENT_STATE_BACKEND: postgres
       # Force Docker secret fields below even if .env.local contains direct database credentials.

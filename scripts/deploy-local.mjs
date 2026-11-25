@@ -7,8 +7,8 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { fetchJsonWithTimeout, isMainModule, pickFailureOutput, printJson, runCommand } from './command-center-utils.mjs';
 import { parseEnvContent } from './env-summary.mjs';
 
-const CONTAINER_NAME = 'gpt-image-playground-customer';
-const IMAGE_REPOSITORY = 'gpt-image-playground-customer';
+const CONTAINER_NAME = 'visual-journal';
+const IMAGE_REPOSITORY = 'visual-journal';
 const DEFAULT_BIND_HOST = '127.0.0.1';
 const DEFAULT_HOST_PORT = '4783';
 const PROBE_PATHS = ['/api/auth-status', '/api/runtime-capabilities', '/api/agent/capabilities'];
@@ -53,8 +53,8 @@ export function buildDockerComposeEnv(env = process.env, deployment) {
         COMPOSE_PROGRESS: 'plain',
         ...(deployment
             ? {
-                  GIP_IMAGE_REVISION: deployment.revision,
-                  GIP_IMAGE_TAG: deployment.imageTag
+                  VJ_IMAGE_REVISION: deployment.revision,
+                  VJ_IMAGE_TAG: deployment.imageTag
               }
             : {})
     };
@@ -73,9 +73,9 @@ export function buildDeploymentImageReference(revision) {
 export function buildLocalBaseUrl(bindHost = DEFAULT_BIND_HOST, hostPort = DEFAULT_HOST_PORT) {
     const host = bindHost.trim();
     const port = hostPort.trim();
-    if (!host) throw new Error('GIP_BIND_HOST 不能为空。');
+    if (!host) throw new Error('VJ_BIND_HOST 不能为空。');
     if (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535) {
-        throw new Error(`GIP_PORT 必须是 1 到 65535 的整数，收到：${hostPort}`);
+        throw new Error(`VJ_PORT 必须是 1 到 65535 的整数，收到：${hostPort}`);
     }
 
     const probeHost = host === '0.0.0.0' ? '127.0.0.1' : host === '::' ? '[::1]' : host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;

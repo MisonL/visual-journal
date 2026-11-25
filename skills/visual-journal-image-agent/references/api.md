@@ -43,7 +43,7 @@ Hugging Face Space Secrets 只能写入和列出名称，不能从 CLI 读回 se
 
 ```text
 npm run env:summary
-npm run env:summary -- --file .env.local --container gpt-image-playground-customer
+npm run env:summary -- --file .env.local --container visual-journal
 ```
 
 当服务返回相对 `content_url`、`metadata_url` 或页面 SSE `path` 时，辅助脚本会额外输出 `absolute_content_url`、`absolute_metadata_url` 或 `absolute_path`。

@@ -1,13 +1,13 @@
-name: gpt-image-playground-customer
+name: visual-journal
 
 services:
-  gpt-image-playground:
+  visual-journal:
     build:
       context: .
       args:
-        VCS_REF: ${GIP_IMAGE_REVISION:-unknown}
-    image: gpt-image-playground-customer:${GIP_IMAGE_TAG:-local}
-    container_name: gpt-image-playground-customer
+        VCS_REF: ${VJ_IMAGE_REVISION:-unknown}
+    image: visual-journal:${VJ_IMAGE_TAG:-local}
+    container_name: visual-journal
     restart: unless-stopped
     env_file:
       - path: .env.local
@@ -19,11 +19,11 @@ services:
       AGENT_STATE_BACKEND: sqlite
       NEXT_PUBLIC_IMAGE_STORAGE_MODE: fs
       PORT: "4783"
-      GIP_COMPOSE_DEPLOYMENT: "true"
-      GIP_BIND_HOST: "${GIP_BIND_HOST:-127.0.0.1}"
+      VJ_COMPOSE_DEPLOYMENT: "true"
+      VJ_BIND_HOST: "${VJ_BIND_HOST:-127.0.0.1}"
     labels:
-      org.opencontainers.image.revision: "${GIP_IMAGE_REVISION:-unknown}"
+      org.opencontainers.image.revision: "${VJ_IMAGE_REVISION:-unknown}"
     ports:
-      - "${GIP_BIND_HOST:-127.0.0.1}:${GIP_PORT:-4783}:4783"
+      - "${VJ_BIND_HOST:-127.0.0.1}:${VJ_PORT:-4783}:4783"
     volumes:
       - ./generated-images:/app/generated-images

@@ -22,7 +22,8 @@ describe('product branding', () => {
             readme,
             /^---\ntitle: 图像手记 \/ Visual Journal\nshort_description: 本地优先的 AI 图片创作工作台\nsdk: docker\napp_port: 4783\n---/m
         );
-        assert.match(readme, /HF Space 已使用 `visual-journal` 名称；/);
+        assert.match(readme, /HF Space 使用 `visual-journal` 名称，本地容器以 `visual-journal` 命名/);
+        assert.match(readme, /`GPT_IMAGE_\*` 环境变量与 API 路径保留旧前缀/);
         assert.doesNotMatch(readme, /HF Space slug、环境变量、API 路径和 Skill 标识继续使用/);
         assert.match(favicon, /<title>图像手记 \/ Visual Journal<\/title>/);
     });

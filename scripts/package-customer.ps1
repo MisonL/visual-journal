@@ -2,8 +2,8 @@ $ErrorActionPreference = 'Stop'
 
 $projectRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
 $distDir = Join-Path $projectRoot 'dist'
-$stageDir = Join-Path $distDir 'gpt-image-playground-customer'
-$zipPath = Join-Path $distDir 'gpt-image-playground-customer.zip'
+$stageDir = Join-Path $distDir 'visual-journal'
+$zipPath = Join-Path $distDir 'visual-journal.zip'
 
 $excludedNames = @(
     '.git',

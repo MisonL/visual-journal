@@ -85,7 +85,7 @@ npm run agent:doctor
 - `status`：只读输出 git、Node、固定 Space 目标、Agent 能力声明路径和 Skill 入口。
 - `doctor`：统一诊断入口，默认包含 HF Space 只读远端检查，并校验当前 npm 是否支持严格安装脚本策略、本地 `node_modules` 隐藏锁文件和直接依赖版本是否与根锁文件一致。
 - `verify`：提交前基线，先核对锁文件安装脚本与 `allowScripts` 白名单、当前 npm 严格安装策略能力和已安装直接依赖，再执行测试、静态检查、脚本语法、构建和 `git diff --check`；需要真实 PostgreSQL 门禁时加 `--postgres`。
-- `deploy:local`：拒绝脏工作区后重建本地 Docker 服务，等待健康检查、核验镜像版本并探测真实 HTTP 端点；加 `--memory` 会断言 memory/indexeddb 覆盖配置生效，加 `--postgres` 会断言 postgres/fs 覆盖配置生效且要求通过 Shell 或 Compose `.env` 提供 `GPT_IMAGE_POSTGRES_PASSWORD`。默认 Compose 只绑定 `127.0.0.1:4783`；需要非回环发布时必须显式设置 `GIP_BIND_HOST` 和 `APP_PASSWORD`。
+- `deploy:local`：拒绝脏工作区后重建本地 Docker 服务，等待健康检查、核验镜像版本并探测真实 HTTP 端点；加 `--memory` 会断言 memory/indexeddb 覆盖配置生效，加 `--postgres` 会断言 postgres/fs 覆盖配置生效且要求通过 Shell 或 Compose `.env` 提供 `GPT_IMAGE_POSTGRES_PASSWORD`。默认 Compose 只绑定 `127.0.0.1:4783`；需要非回环发布时必须显式设置 `VJ_BIND_HOST` 和 `APP_PASSWORD`。
 - `deploy:space`：上传当前干净 git HEAD 到固定 HF Space，并做只读公网验证；已存在 Docker Space 根据远端元数据直接使用认证 Git 推送，其他类型才优先尝试 `hf upload`。
 - `agent:doctor`：通过仓库 Skill 脚本执行只读 Agent API 契约检查，不触发真实生图。
 

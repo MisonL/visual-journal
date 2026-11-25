@@ -1,8 +1,8 @@
-name: gpt-image-playground-customer
+name: visual-journal
 
 # 在部署主机启用 TUN/fake DNS 时使用此覆盖文件。
 # 它只打开受限的 RFC 2544 合成 DNS 地址支持，仍保留普通私网、回环、链路本地和字面量地址拦截。
 services:
-  gpt-image-playground:
+  visual-journal:
     environment:
       OPENAI_TUN_MODE: synthetic-dns
