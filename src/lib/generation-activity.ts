@@ -21,6 +21,8 @@ type GenerationActivityOptions = {
     mode: 'generate' | 'edit';
     streamingPreviewCount: number;
     errorMessage?: string;
+    /** 失败详情已在画布内呈现，时间线无需重复。 */
+    errorShownInCanvas?: boolean;
     completedGenerationCount: number | null;
     batchProgress?: GenerationBatchProgress | null;
     t: Translate;
@@ -70,7 +72,8 @@ export function buildGenerationActivityItems(options: GenerationActivityOptions)
         });
     }
 
-    if (options.errorMessage) {
+    // 画布内已经展示了失败卡片时，时间线不再重复同一条失败，避免同一错误出现两遍。
+    if (options.errorMessage && options.errorShownInCanvas !== true) {
         const failedLabel =
             options.mode === 'edit' ? options.t('history.activityEditFailed') : options.t('history.activityFailed');
         items.push({

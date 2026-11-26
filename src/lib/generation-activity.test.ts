@@ -57,6 +57,24 @@ describe('buildGenerationActivityItems', () => {
         assert.doesNotMatch(items[2].detail, /建议检查 API 设置后重试/);
     });
 
+    it('omits the timeline failure when the canvas already shows the same failure', () => {
+        const base = {
+            isLoading: false,
+            isSendingToEdit: false,
+            mode: 'generate' as const,
+            streamingPreviewCount: 0,
+            errorMessage: '上游服务不可用',
+            completedGenerationCount: null,
+            t
+        };
+
+        // 默认保留失败项（兼容既有调用方）。
+        assert.deepEqual(ids(buildGenerationActivityItems(base)), ['failed']);
+
+        // 画布已展示失败时，时间线不再重复。
+        assert.deepEqual(ids(buildGenerationActivityItems({ ...base, errorShownInCanvas: true })), []);
+    });
+
     it('reports saved completion only after loading ends with a completed generation count', () => {
         const items = buildGenerationActivityItems({
             isLoading: false,

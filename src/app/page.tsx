@@ -977,6 +977,9 @@ export default function HomePage() {
                 mode,
                 streamingPreviewCount: streamingPreviewImages.size,
                 errorMessage: error?.message,
+                // 画布内的失败卡片会原样展示这条错误，时间线就不再重复一遍。
+                errorShownInCanvas:
+                    !isLoading && !isSendingToEdit && !latestImageBatch && error?.message === generationFailureMessage,
                 completedGenerationCount,
                 batchProgress,
                 t
@@ -985,8 +988,10 @@ export default function HomePage() {
             batchProgress,
             completedGenerationCount,
             error?.message,
+            generationFailureMessage,
             isLoading,
             isSendingToEdit,
+            latestImageBatch,
             mode,
             streamingPreviewImages.size,
             t
@@ -4415,7 +4420,9 @@ export default function HomePage() {
                                 aria-hidden={isMobileCreationDrawerOpen}
                                 inert={isMobileCreationDrawerOpen}
                                 className='order-1 flex min-h-[380px] min-w-0 scroll-mt-4 flex-col sm:min-h-[460px] lg:order-2 xl:min-h-0'>
-                                {error && (
+                                {/* 失败信息由画布内的失败卡片承载，这里不再重复横幅；
+                                    只在有尚未进入画布的错误（如参数校验）时提示一次。 */}
+                                {error && !outputFailureMessage && (
                                     <Alert
                                         variant='destructive'
                                         className='border-destructive/45 bg-destructive/10 text-destructive mb-4'>
