@@ -573,7 +573,7 @@ export function ImageOutput({
                                 );
                             })()}
                             {/* 在底部居中叠加加载状态。 */}
-                            <div className='bg-foreground/80 text-background absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full px-3 py-1.5'>
+                            <div className='bg-foreground/80 text-background animate-in fade-in-0 absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full px-3 py-1.5 duration-200'>
                                 <Loader2 className='h-4 w-4 animate-spin' />
                                 <p className='text-sm'>{t('output.streaming')}</p>
                             </div>
@@ -594,14 +594,27 @@ export function ImageOutput({
                             </div>
                         </div>
                     ) : (
-                        <div className='text-muted-foreground flex flex-col items-center justify-center'>
-                            <Loader2 className='mb-2 h-8 w-8 animate-spin' />
-                            <p>{isStreamingRequest ? t('output.keepalive') : t('output.generating')}</p>
+                        <div className='text-muted-foreground animate-in fade-in-0 flex flex-col items-center justify-center duration-300'>
+                            <div className='relative mb-3 flex h-12 w-12 items-center justify-center'>
+                                <span
+                                    aria-hidden='true'
+                                    className='bg-primary/20 breathing-halo absolute inset-0 rounded-full'
+                                />
+                                <Loader2 className='text-primary relative h-7 w-7 animate-spin' />
+                            </div>
+                            <p className='text-foreground/85 text-sm font-medium'>
+                                {isStreamingRequest ? t('output.keepalive') : t('output.generating')}
+                            </p>
                             {elapsedSeconds > 0 && (
                                 <p className='mt-1 text-xs tabular-nums' data-testid='generation-elapsed'>
                                     {t('output.elapsed', { seconds: elapsedSeconds })}
                                 </p>
                             )}
+                            <div
+                                aria-hidden='true'
+                                data-testid='generation-wait-indicator'
+                                className='bg-primary/15 shimmer-sweep mt-3 h-1 w-28 overflow-hidden rounded-full'
+                            />
                             {onCancel && (
                                 <Button
                                     type='button'
@@ -616,7 +629,7 @@ export function ImageOutput({
                         </div>
                     )
                 ) : hasFailure ? (
-                    <div className='photo-paper relative flex aspect-[4/3] w-full max-w-[780px] flex-col justify-between p-5 sm:p-6 2xl:max-w-[860px]'>
+                    <div className='photo-paper reveal-image relative flex aspect-[4/3] w-full max-w-[780px] flex-col justify-between p-5 sm:p-6 2xl:max-w-[860px]'>
                         <div className='space-y-3'>
                             <div className='text-muted-foreground text-xs'>{failureKicker}</div>
                             <div className='space-y-2'>
@@ -662,8 +675,9 @@ export function ImageOutput({
                                     type='button'
                                     key={img.filename}
                                     onClick={() => onViewChange(index)}
+                                    style={{ animationDelay: `${Math.min(index, 8) * 55}ms` }}
                                     className={cn(
-                                        'photo-paper relative aspect-square overflow-hidden p-2 text-left transition-[box-shadow,transform] enabled:motion-safe:hover:-translate-y-0.5',
+                                        'photo-paper reveal-image group relative aspect-square overflow-hidden p-2 text-left transition-[box-shadow,transform] enabled:motion-safe:hover:-translate-y-0.5',
                                         selectedImageIndex === index
                                             ? 'ring-ring ring-offset-background ring-2 ring-offset-2'
                                             : 'focus-visible:ring-ring focus-visible:ring-offset-background focus-visible:ring-2 focus-visible:ring-offset-2'
@@ -674,7 +688,7 @@ export function ImageOutput({
                                         alt={t('output.generatedImage', { index: index + 1 })}
                                         fill
                                         style={{ objectFit: 'contain' }}
-                                        className='image-edge rounded-md'
+                                        className='image-edge rounded-md transition-transform duration-500 ease-out motion-safe:group-hover:scale-[1.03]'
                                         sizes='(max-width: 768px) 50vw, (max-width: 1024px) 33vw, 25vw'
                                         onLoad={(event) => handleImageLoad(img.filename, event)}
                                         unoptimized
@@ -683,7 +697,9 @@ export function ImageOutput({
                             ))}
                         </div>
                     ) : imageBatch[viewMode] ? (
-                        <div className='photo-paper relative aspect-[4/3] w-full max-w-[780px] p-3 2xl:max-w-[860px]'>
+                        <div
+                            key={imageBatch[viewMode].filename}
+                            className='photo-paper reveal-image relative aspect-[4/3] w-full max-w-[780px] p-3 2xl:max-w-[860px]'>
                             <Image
                                 src={imageBatch[viewMode].path}
                                 alt={resolvedAltText}

@@ -550,4 +550,12 @@ describe('ImageOutput generation progress', () => {
 
         assert.doesNotMatch(html, /取消生成/);
     });
+
+    it('shows a decorative activity indicator while waiting', () => {
+        const html = renderLoading({ elapsedSeconds: 5 });
+
+        assert.match(html, /data-testid="generation-wait-indicator"/);
+        assert.match(html, /aria-hidden="true"[^>]*data-testid="generation-wait-indicator"/);
+        assert.match(html, /breathing-halo/);
+    });
 });

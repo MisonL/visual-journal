@@ -44,8 +44,9 @@ function GenerationActivityRows({
             {items.map((item, index) => (
                 <div
                     key={item.id}
+                    style={{ animationDelay: `${Math.min(index, 6) * 45}ms` }}
                     className={cn(
-                        'grid grid-cols-[auto_auto_1fr] items-start gap-2 rounded-md px-2 text-left transition-[background-color]',
+                        'reveal-image grid grid-cols-[auto_auto_1fr] items-start gap-2 rounded-md px-2 text-left transition-[background-color]',
                         index === 0 ? 'bg-muted/70' : 'bg-background/58',
                         compact ? 'py-1.5' : 'py-2',
                         item.tone === 'warning' && 'bg-destructive/5'
@@ -110,8 +111,9 @@ function ActivityHistoryRow({
             type='button'
             onClick={() => onSelectImage(item)}
             disabled={isFailedItem}
+            style={{ animationDelay: `${Math.min(index, 6) * 45}ms` }}
             className={cn(
-                'grid w-full grid-cols-[auto_auto_1fr_auto] items-start gap-2 rounded-md px-2 py-2 text-left transition-[background-color,color]',
+                'reveal-image grid w-full grid-cols-[auto_auto_1fr_auto] items-start gap-2 rounded-md px-2 py-2 text-left transition-[background-color,color]',
                 isLatestQuietActivity
                     ? 'text-foreground bg-muted'
                     : 'text-muted-foreground hover:text-foreground hover:bg-muted/70',

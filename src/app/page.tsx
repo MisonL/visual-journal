@@ -4425,13 +4425,13 @@ export default function HomePage() {
                                 {error && !outputFailureMessage && (
                                     <Alert
                                         variant='destructive'
-                                        className='border-destructive/45 bg-destructive/10 text-destructive mb-4'>
+                                        className='border-destructive/45 bg-destructive/10 text-destructive animate-in fade-in-0 slide-in-from-top-1 mb-4 duration-200'>
                                         <AlertTitle>{t('common.error')}</AlertTitle>
                                         <AlertDescription>{renderErrorDescription(error)}</AlertDescription>
                                     </Alert>
                                 )}
                                 {!error && cancelNotice && (
-                                    <Alert className='border-border bg-muted/60 text-muted-foreground mb-4'>
+                                    <Alert className='border-border bg-muted/60 text-muted-foreground animate-in fade-in-0 slide-in-from-top-1 mb-4 duration-200'>
                                         <AlertTitle>{t('output.cancelledTitle')}</AlertTitle>
                                         <AlertDescription>{cancelNotice}</AlertDescription>
                                     </Alert>

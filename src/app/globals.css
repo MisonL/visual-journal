@@ -118,6 +118,38 @@
     --sidebar-ring: oklch(0.7 0.16 27);
 }
 
+@keyframes vj-image-reveal {
+    from {
+        opacity: 0;
+        transform: translateY(8px) scale(0.988);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+@keyframes vj-sheen {
+    from {
+        transform: translateX(-150%);
+    }
+    to {
+        transform: translateX(250%);
+    }
+}
+
+@keyframes vj-breathe {
+    0%,
+    100% {
+        opacity: 0.35;
+        transform: scale(0.92);
+    }
+    50% {
+        opacity: 0.75;
+        transform: scale(1.12);
+    }
+}
+
 @layer base {
     * {
         @apply border-border outline-ring/50;
@@ -185,6 +217,43 @@
 
     .dark .image-edge {
         outline-color: rgb(255 255 255 / 10%);
+    }
+
+    /* 新图片/新卡片入场：轻微上浮 + 淡入，比硬切换更连贯。 */
+    .reveal-image {
+        animation: vj-image-reveal 0.44s cubic-bezier(0.2, 0, 0, 1) both;
+    }
+
+    /* 生成中的微光扫过，只用于表示"仍在处理"。 */
+    .shimmer-sweep {
+        position: relative;
+        overflow: hidden;
+    }
+
+    .shimmer-sweep::after {
+        position: absolute;
+        inset: 0;
+        content: '';
+        background: linear-gradient(100deg, transparent 15%, rgb(255 255 255 / 72%) 50%, transparent 85%);
+        animation: vj-sheen 1.9s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+        pointer-events: none;
+    }
+
+    .dark .shimmer-sweep::after {
+        background: linear-gradient(100deg, transparent 15%, rgb(255 255 255 / 9%) 50%, transparent 85%);
+    }
+
+    /* 等待时的柔和呼吸光晕。 */
+    .breathing-halo {
+        animation: vj-breathe 2.6s ease-in-out infinite;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .reveal-image,
+        .breathing-halo,
+        .shimmer-sweep::after {
+            animation: none;
+        }
     }
 
     .literary-scrollbar {
