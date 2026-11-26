@@ -63,6 +63,10 @@ type ImageOutputProps = {
     baseImagePreviewUrl: string | null;
     streamingPreviewImages?: Map<number, string>;
     isStreamingRequest?: boolean;
+    /** 已等待秒数；>0 时在加载态副标题里显示，让用户知道还在跑。 */
+    elapsedSeconds?: number;
+    /** 生成中提供取消；未传则不显示取消按钮。 */
+    onCancel?: () => void;
     clientPasswordHash: string | null;
     canOpenLogs: boolean;
     openLogsSignal?: number;
@@ -220,6 +224,8 @@ export function ImageOutput({
     baseImagePreviewUrl,
     streamingPreviewImages,
     isStreamingRequest = false,
+    elapsedSeconds = 0,
+    onCancel,
     clientPasswordHash,
     canOpenLogs,
     openLogsSignal,
@@ -591,6 +597,22 @@ export function ImageOutput({
                         <div className='text-muted-foreground flex flex-col items-center justify-center'>
                             <Loader2 className='mb-2 h-8 w-8 animate-spin' />
                             <p>{isStreamingRequest ? t('output.keepalive') : t('output.generating')}</p>
+                            {elapsedSeconds > 0 && (
+                                <p className='mt-1 text-xs tabular-nums' data-testid='generation-elapsed'>
+                                    {t('output.elapsed', { seconds: elapsedSeconds })}
+                                </p>
+                            )}
+                            {onCancel && (
+                                <Button
+                                    type='button'
+                                    variant='outline'
+                                    size='sm'
+                                    className='mt-3'
+                                    onClick={onCancel}
+                                    data-testid='cancel-generation'>
+                                    {t('output.cancelGeneration')}
+                                </Button>
+                            )}
                         </div>
                     )
                 ) : hasFailure ? (

@@ -275,6 +275,9 @@ const messages: Record<Locale, Record<string, string>> = {
         'output.emptyDescription': '写下灵感后点击生成，这里会显示预览、最终图片和后续编辑动作。',
         'output.error': '图片显示失败。',
         'output.generating': '正在生成图片...',
+        'output.elapsed': '已等待 {seconds} 秒',
+        'output.cancelGeneration': '取消生成',
+        'output.cancelledTitle': '已取消',
         'output.editing': '正在编辑图片...',
         'output.streaming': '流式生成中...',
         'output.keepalive': '连接保持中...',
@@ -566,16 +569,21 @@ const messages: Record<Locale, Record<string, string>> = {
         'error.unknownTargetSize': '目标尺寸',
         'error.unknownActualSize': '未知尺寸',
         'error.networkRequest': '无法连接图片服务，请检查网络后重试。',
+        'error.generationCancelled': '已取消本次生成。',
         'error.apiFailedWithAdvice': '{message}。建议：{advice}',
         'error.adviceAuth': '检查 API Key、访问码或渠道权限。',
         'error.adviceQuota': '上游渠道余额不足，请充值或切换可用渠道后重试。',
+        'error.adviceQuotaSingleChannel': '上游渠道余额不足，请给该渠道充值后重试。',
         'error.contentPolicyRejected': '提示词被上游内容安全策略拒绝，未生成图片。',
         'error.adviceContentPolicy':
             '改写提示词后重试（换一种描述方式、去掉可能触发审核的措辞）；重试相同提示词不会通过。',
         'error.adviceChannelUnavailable': '当前没有健康的图片渠道，请等待恢复探测或切换渠道配置。',
+        'error.adviceChannelUnavailableSingle':
+            '当前唯一的图片渠道不可用，请稍后重试；持续失败请检查该渠道的配置与密钥。',
         'error.adviceValidation': '请修正请求参数后再试；这类错误不会通过重试解决。',
         'error.adviceRateLimit': '请求被限流。请稍后重试，或降低并发和图片数量。',
         'error.adviceUpstream': '上游或 API 中转站异常。请稍后重试，或切换可用渠道。',
+        'error.adviceUpstreamSingleChannel': '上游或 API 中转站异常。请稍后重试；持续失败请检查渠道配置。',
         'error.adviceCloudflare':
             '4K 或高分辨率出图可能超过 Cloudflare 100 秒限制。请降低分辨率，或改用支持 4K 流式出图的 API 中转站：{url}',
         'error.batchPartialFailure': '批量生成部分失败：{failed}/{total} 个任务失败。',
@@ -911,6 +919,9 @@ const messages: Record<Locale, Record<string, string>> = {
             'Write an idea and generate. Previews, final images, and follow-up actions appear here.',
         'output.error': 'Error displaying image.',
         'output.generating': 'Generating image...',
+        'output.elapsed': 'Waiting {seconds}s',
+        'output.cancelGeneration': 'Cancel generation',
+        'output.cancelledTitle': 'Cancelled',
         'output.editing': 'Editing image...',
         'output.streaming': 'Streaming...',
         'output.keepalive': 'Connection kept alive...',
@@ -1219,19 +1230,25 @@ const messages: Record<Locale, Record<string, string>> = {
         'error.unknownTargetSize': 'Target size',
         'error.unknownActualSize': 'Unknown size',
         'error.networkRequest': 'Could not reach the image service. Check the network and try again.',
+        'error.generationCancelled': 'Generation cancelled.',
         'error.apiFailedWithAdvice': '{message}. Recommendation: {advice}',
         'error.adviceAuth': 'Check the API Key, access code, or channel permissions.',
         'error.adviceQuota': 'The upstream channel has insufficient balance. Top up or switch to an available channel.',
+        'error.adviceQuotaSingleChannel': 'The upstream channel has insufficient balance. Top up and retry.',
         'error.contentPolicyRejected':
             'The prompt was rejected by the upstream content safety policy; no image was generated.',
         'error.adviceContentPolicy':
             'Rephrase the prompt and try again (describe it differently, remove wording that may trigger moderation). Retrying the same prompt will not pass.',
         'error.adviceChannelUnavailable':
             'No healthy image channel is available. Wait for recovery or switch channels.',
+        'error.adviceChannelUnavailableSingle':
+            'The only image channel is unavailable. Retry later; if it keeps failing, check its configuration and key.',
         'error.adviceValidation': 'Correct the request parameters and try again; retrying will not fix this error.',
         'error.adviceRateLimit': 'The request was rate limited. Retry later, or lower concurrency and image count.',
         'error.adviceUpstream':
             'The upstream service or API relay is failing. Retry later, or switch to another channel.',
+        'error.adviceUpstreamSingleChannel':
+            'The upstream service or API relay is failing. Retry later; if it keeps failing, check the channel configuration.',
         'error.adviceCloudflare':
             '4K or high-resolution generation may exceed the Cloudflare 100-second limit. Lower the resolution, or use an API relay that supports 4K streaming output: {url}',
         'error.batchPartialFailure': 'Batch generation partially failed. Failed: {failed}/{total}.',

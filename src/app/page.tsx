@@ -577,6 +577,11 @@ export default function HomePage() {
     const [clientPasswordHash, setClientPasswordHash] = React.useState<string | null>(null);
     const [isEntryAuthenticated, setIsEntryAuthenticated] = React.useState(false);
     const [isLoading, setIsLoading] = React.useState(false);
+    // 生成耗时秒数：长任务时要让用户看到「还在跑」，而不是只有一个转圈。
+    const [generationElapsedSeconds, setGenerationElapsedSeconds] = React.useState(0);
+    // 用户主动取消后的中性提示，与红色失败提示分开，避免读成"生成失败"。
+    const [cancelNotice, setCancelNotice] = React.useState<string | null>(null);
+    const generationAbortRef = React.useRef<AbortController | null>(null);
     const [isSendingToEdit, setIsSendingToEdit] = React.useState(false);
     const [error, setError] = React.useState<ApiErrorNotice | null>(null);
     const [generationFailureMessage, setGenerationFailureMessage] = React.useState<string | null>(null);
@@ -1038,6 +1043,25 @@ export default function HomePage() {
     const handlePauseBatch = React.useCallback(() => {
         batchPauseRequestedRef.current = true;
         setIsBatchPauseRequested(true);
+    }, []);
+
+    // 生成中每秒推进一次已用时间，让「还在等」和「已经卡死」区分得开。
+    React.useEffect(() => {
+        if (!isLoading) {
+            setGenerationElapsedSeconds(0);
+            return;
+        }
+        const startedAt = Date.now();
+        setGenerationElapsedSeconds(0);
+        const timer = window.setInterval(() => {
+            setGenerationElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000));
+        }, 1000);
+        return () => window.clearInterval(timer);
+    }, [isLoading]);
+
+    const handleCancelGeneration = React.useCallback(() => {
+        generationAbortRef.current?.abort();
+        generationAbortRef.current = null;
     }, []);
 
     const handleWorkbenchModeChange = React.useCallback(
@@ -2034,12 +2058,18 @@ export default function HomePage() {
         ): Promise<{ images: ApiImageResponseItem[]; usage: unknown; actualCost?: ActualCostDetails }> => {
             const formClientRequestId = String(apiFormData.get('clientRequestId') || '');
             let response: Response;
+            const abortController = new AbortController();
+            generationAbortRef.current = abortController;
             try {
                 response = await fetch('/api/images', {
                     method: 'POST',
-                    body: apiFormData
+                    body: apiFormData,
+                    signal: abortController.signal
                 });
             } catch {
+                if (abortController.signal.aborted) {
+                    throw new ApiRequestError(t('error.generationCancelled'));
+                }
                 throw new ApiRequestError(t('error.networkRequest'));
             }
 
@@ -2103,6 +2133,9 @@ export default function HomePage() {
                     try {
                         chunk = await reader.read();
                     } catch {
+                        if (abortController.signal.aborted) {
+                            throw new ApiRequestError(t('error.generationCancelled'));
+                        }
                         throw new ApiRequestError(t('error.streaming'));
                     }
                     const { done, value } = chunk;
@@ -2230,6 +2263,7 @@ export default function HomePage() {
 
         setIsLoading(true);
         setActiveRequestStreaming(requestStreamMode !== 'non_stream');
+        setCancelNotice(null);
         setError(null);
         setGenerationFailureMessage(null);
         setFailedBatchPrompts([]);
@@ -2518,7 +2552,11 @@ export default function HomePage() {
                                 failed: errors.length,
                                 total: jobs.length,
                                 errors: errors.map((error) => summarizeApiError(error, t('error.unexpected'), t)),
-                                t
+                                t,
+                                hasAlternativeChannel:
+                                    runtimeCapabilities?.streamingBatch.healthyChannelCount === undefined
+                                        ? undefined
+                                        : runtimeCapabilities.streamingBatch.healthyChannelCount > 1
                             })
                         )
                     );
@@ -2574,7 +2612,11 @@ export default function HomePage() {
                                 failed: errors.length,
                                 total: jobs.length,
                                 errors: errors.map((error) => summarizeApiError(error, t('error.unexpected'), t)),
-                                t
+                                t,
+                                hasAlternativeChannel:
+                                    runtimeCapabilities?.streamingBatch.healthyChannelCount === undefined
+                                        ? undefined
+                                        : runtimeCapabilities.streamingBatch.healthyChannelCount > 1
                             })
                         )
                     );
@@ -2597,6 +2639,15 @@ export default function HomePage() {
             shouldKeepRetryArgs = false;
         } catch (err: unknown) {
             durationMs = Date.now() - startTime;
+            // 用户主动取消不算失败：不进失败历史、不显示红色错误，只给一条中性提示。
+            if (err instanceof ApiRequestError && err.message === t('error.generationCancelled')) {
+                setError(null);
+                setGenerationFailureMessage(null);
+                setLatestImageBatch(null);
+                setStreamingPreviewImages(new Map());
+                setCancelNotice(t('error.generationCancelled'));
+                return;
+            }
             console.error(`API 调用在 ${durationMs}ms 后失败：`, err);
             if (hasPreservedDisplayedAuthError(err)) {
                 setGenerationFailureMessage(t('error.passwordExpired'));
@@ -2605,7 +2656,13 @@ export default function HomePage() {
                 return;
             }
             const errorSummary = summarizeApiError(err, t('error.unexpected'), t);
-            const message = buildUserFacingApiErrorMessage({ ...errorSummary, t });
+            // 只有一条健康渠道时，不再建议用户「切换渠道」——没有可切换的对象。
+            const healthyChannels = runtimeCapabilities?.streamingBatch.healthyChannelCount;
+            const message = buildUserFacingApiErrorMessage({
+                ...errorSummary,
+                t,
+                hasAlternativeChannel: healthyChannels === undefined ? undefined : healthyChannels > 1
+            });
             setError(createErrorNotice(message));
             setGenerationFailureMessage(message);
             setLatestImageBatch(null);
@@ -2626,6 +2683,8 @@ export default function HomePage() {
             if (!shouldKeepRetryArgs) {
                 setLastApiCallArgs(null);
             }
+            // 整个请求（含流式读取）结束后才释放，保证流式过程中取消也能生效。
+            generationAbortRef.current = null;
             setActiveRequestStreaming(false);
             setIsLoading(false);
         }
@@ -4364,6 +4423,12 @@ export default function HomePage() {
                                         <AlertDescription>{renderErrorDescription(error)}</AlertDescription>
                                     </Alert>
                                 )}
+                                {!error && cancelNotice && (
+                                    <Alert className='border-border bg-muted/60 text-muted-foreground mb-4'>
+                                        <AlertTitle>{t('output.cancelledTitle')}</AlertTitle>
+                                        <AlertDescription>{cancelNotice}</AlertDescription>
+                                    </Alert>
+                                )}
                                 <div className='min-h-0 shrink-0 xl:flex-1'>
                                     <ImageOutput
                                         imageBatch={latestImageBatch}
@@ -4385,6 +4450,8 @@ export default function HomePage() {
                                         baseImagePreviewUrl={editSourceImagePreviewUrls[0] || null}
                                         streamingPreviewImages={streamingPreviewImages}
                                         isStreamingRequest={activeRequestStreaming}
+                                        elapsedSeconds={generationElapsedSeconds}
+                                        onCancel={isLoading ? handleCancelGeneration : undefined}
                                         clientPasswordHash={clientPasswordHash}
                                         canOpenLogs={canOpenLogs}
                                         openLogsSignal={openLogsSignal}

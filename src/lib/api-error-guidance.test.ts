@@ -50,7 +50,11 @@ const translate = (key: string, values?: Record<string, string | number>) => {
         'error.adviceUpstream': '上游或 API 中转站异常。请稍后重试，或切换可用渠道。',
         'error.adviceCloudflare':
             '4K 或高分辨率出图可能超过 Cloudflare 100 秒限制。请降低分辨率，或改用支持 4K 流式出图的 API 中转站：{url}',
-        'error.batchPartialFailureDetailed': '批量生成部分失败：{failed}/{total} 个任务失败。失败明细：{reasons}'
+        'error.batchPartialFailureDetailed': '批量生成部分失败：{failed}/{total} 个任务失败。失败明细：{reasons}',
+        'error.adviceQuotaSingleChannel': '上游渠道余额不足，请给该渠道充值后重试。',
+        'error.adviceUpstreamSingleChannel': '上游或 API 中转站异常。请稍后重试；持续失败请检查渠道配置。',
+        'error.adviceChannelUnavailableSingle':
+            '当前唯一的图片渠道不可用，请稍后重试；持续失败请检查该渠道的配置与密钥。'
     };
     return (messages[key] || key).replace(/\{(\w+)\}/g, (match, valueKey) => String(values?.[valueKey] ?? match));
 };
@@ -159,5 +163,77 @@ describe('buildApiErrorNotice', () => {
 
         assert.equal(notice.message, '建议降低分辨率或切换渠道。');
         assert.deepEqual(notice.links, []);
+    });
+});
+
+describe('single-channel deployments', () => {
+    it('does not tell users to switch channels when only one healthy channel exists', () => {
+        const message = buildUserFacingApiErrorMessage({
+            message: '上游返回 500',
+            status: 500,
+            t: translate,
+            hasAlternativeChannel: false
+        });
+
+        assert.match(message, /持续失败请检查渠道配置/);
+        assert.doesNotMatch(message, /切换可用渠道/);
+    });
+
+    it('keeps the switch-channel advice when a fallback channel is available', () => {
+        const message = buildUserFacingApiErrorMessage({
+            message: '上游返回 500',
+            status: 500,
+            t: translate,
+            hasAlternativeChannel: true
+        });
+
+        assert.match(message, /切换可用渠道/);
+    });
+
+    it('keeps switch-channel advice when the channel count is unknown', () => {
+        const message = buildUserFacingApiErrorMessage({
+            message: '上游返回 500',
+            status: 500,
+            t: translate
+        });
+
+        assert.match(message, /切换可用渠道/);
+    });
+
+    it('uses the single-channel quota advice instead of suggesting a switch', () => {
+        const message = buildUserFacingApiErrorMessage({
+            message: '余额不足',
+            code: 'upstream_quota_exhausted',
+            t: translate,
+            hasAlternativeChannel: false
+        });
+
+        assert.match(message, /请给该渠道充值/);
+        assert.doesNotMatch(message, /切换可用渠道/);
+    });
+
+    it('uses the single-channel unavailable advice for the only broken channel', () => {
+        const message = buildUserFacingApiErrorMessage({
+            message: '当前没有健康的图片渠道凭证。',
+            code: 'channel_unavailable',
+            t: translate,
+            hasAlternativeChannel: false
+        });
+
+        assert.match(message, /当前唯一的图片渠道不可用/);
+        assert.doesNotMatch(message, /切换渠道配置/);
+    });
+
+    it('propagates the single-channel hint into batch failure reasons', () => {
+        const message = buildBatchPartialFailureMessage({
+            failed: 1,
+            total: 2,
+            errors: [{ message: '上游返回 500', status: 500 }],
+            t: translate,
+            hasAlternativeChannel: false
+        });
+
+        assert.match(message, /持续失败请检查渠道配置/);
+        assert.doesNotMatch(message, /切换可用渠道/);
     });
 });

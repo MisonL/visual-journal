@@ -498,3 +498,56 @@ describe('ImageOutput result actions', () => {
         assert.doesNotMatch(html, /重试生成/);
     });
 });
+
+describe('ImageOutput generation progress', () => {
+    function renderLoading(props: { elapsedSeconds?: number; onCancel?: () => void }): string {
+        return renderToStaticMarkup(
+            <I18nProvider>
+                <ImageOutput
+                    imageBatch={null}
+                    viewMode='grid'
+                    onViewChange={noop}
+                    isLoading
+                    onSendToEdit={noop}
+                    onDownloadImage={noop}
+                    onShareImage={noop}
+                    onCreateVariant={noop}
+                    onReusePrompt={noop}
+                    canCreateVariant={false}
+                    canReusePrompt={false}
+                    currentMode='generate'
+                    baseImagePreviewUrl={null}
+                    clientPasswordHash={null}
+                    canOpenLogs={false}
+                    {...props}
+                />
+            </I18nProvider>
+        );
+    }
+
+    it('shows how long the request has been waiting instead of a bare spinner', () => {
+        const html = renderLoading({ elapsedSeconds: 42 });
+
+        assert.match(html, /已等待 42 秒/);
+        assert.match(html, /data-testid="generation-elapsed"/);
+    });
+
+    it('hides the elapsed line before the first second ticks', () => {
+        const html = renderLoading({ elapsedSeconds: 0 });
+
+        assert.doesNotMatch(html, /已等待/);
+    });
+
+    it('offers a cancel action while a generation is running', () => {
+        const html = renderLoading({ elapsedSeconds: 5, onCancel: noop });
+
+        assert.match(html, new RegExp(`<button[^>]*>${buttonContentPattern}取消生成${buttonContentPattern}</button>`));
+        assert.match(html, /data-testid="cancel-generation"/);
+    });
+
+    it('does not render a cancel action when the caller cannot cancel', () => {
+        const html = renderLoading({ elapsedSeconds: 5 });
+
+        assert.doesNotMatch(html, /取消生成/);
+    });
+});

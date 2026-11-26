@@ -6,6 +6,11 @@ export type ApiErrorSummary = {
     message: string;
     status?: number;
     code?: string;
+    /**
+     * 是否还存在其它可切换的渠道。只有单渠道时不能再建议「切换渠道」，
+     * 否则给出一条用户根本执行不了的建议。
+     */
+    hasAlternativeChannel?: boolean;
 };
 
 export type ApiErrorNotice = {
@@ -17,7 +22,7 @@ export type ApiErrorNotice = {
 };
 
 export function buildUserFacingApiErrorMessage(options: ApiErrorSummary & { t: Translate }): string {
-    const advice = buildApiErrorAdvice(options.status, options.code, options.t);
+    const advice = buildApiErrorAdvice(options.status, options.code, options.t, options.hasAlternativeChannel);
     if (!advice) return options.message;
 
     return options.t('error.apiFailedWithAdvice', {
@@ -31,6 +36,7 @@ export function buildBatchPartialFailureMessage(options: {
     total: number;
     errors: ApiErrorSummary[];
     t: Translate;
+    hasAlternativeChannel?: boolean;
 }): string {
     const reasons = options.errors
         .map(
@@ -39,7 +45,8 @@ export function buildBatchPartialFailureMessage(options: {
                     message: error.message,
                     status: error.status,
                     code: error.code,
-                    t: options.t
+                    t: options.t,
+                    hasAlternativeChannel: options.hasAlternativeChannel
                 })}`
         )
         .join(' ');
@@ -55,15 +62,28 @@ export function buildApiErrorNotice(message: string): ApiErrorNotice {
     return { message, links: [] };
 }
 
-function buildApiErrorAdvice(status: number | undefined, code: string | undefined, t: Translate): string | null {
-    if (code === 'upstream_quota_exhausted') return t('error.adviceQuota');
+function buildApiErrorAdvice(
+    status: number | undefined,
+    code: string | undefined,
+    t: Translate,
+    hasAlternativeChannel?: boolean
+): string | null {
+    // 单渠道部署时，「切换可用渠道」是用户执行不了的建议，换成可执行的说法。
+    const allowChannelSwitch = hasAlternativeChannel !== false;
+    if (code === 'upstream_quota_exhausted') {
+        return allowChannelSwitch ? t('error.adviceQuota') : t('error.adviceQuotaSingleChannel');
+    }
     if (code === 'upstream_content_policy') return t('error.adviceContentPolicy');
-    if (code === 'channel_unavailable') return t('error.adviceChannelUnavailable');
+    if (code === 'channel_unavailable') {
+        return allowChannelSwitch ? t('error.adviceChannelUnavailable') : t('error.adviceChannelUnavailableSingle');
+    }
     if (code === 'validation_error') return t('error.adviceValidation');
     if (status === 401 || status === 403) return t('error.adviceAuth');
     if (status === 429) return t('error.adviceRateLimit');
     if (status === 524) return t('error.adviceCloudflare', { url: superApiReferralUrl });
-    if (isUpstreamStatus(status)) return t('error.adviceUpstream');
+    if (isUpstreamStatus(status)) {
+        return allowChannelSwitch ? t('error.adviceUpstream') : t('error.adviceUpstreamSingleChannel');
+    }
     return null;
 }
 
