@@ -523,6 +523,9 @@ export function GenerationForm({
         [backendCompatibility.imageCountRange]
     );
     const generationCountOptions = buildIntegerRangeOptions(generationCountRange);
+    // 渠道只放行单张时，单选组会被渲染成一个灰掉的「1」，看起来像坏按钮。
+    // 这里把它降级为只读说明，让用户知道是渠道限制而不是页面故障。
+    const generationCountFixed = generationCountRange.min === generationCountRange.max;
     const footerPromptTarget = resolveGenerationFooterPromptTarget({
         currentMode,
         prompt,
@@ -879,6 +882,12 @@ export function GenerationForm({
                             {isBatchMode ? (
                                 <div className='border-border bg-muted/25 text-muted-foreground rounded-md border px-3 py-2 text-xs leading-5'>
                                     {t('mode.batchHint')}
+                                </div>
+                            ) : generationCountFixed ? (
+                                <div
+                                    className='border-border bg-muted/25 text-muted-foreground rounded-md border px-3 py-2 text-xs leading-5'
+                                    data-testid='generation-count-fixed'>
+                                    {t('form.countFixedByChannel', { count: generationCountRange.max })}
                                 </div>
                             ) : (
                                 <RadioGroup
@@ -1283,6 +1292,13 @@ export function GenerationForm({
                                         )}
                                     </TabsContent>
                                     <TabsContent value='stream' className='space-y-5'>
+                                        {streamingDisabledByStrategy && (
+                                            <div
+                                                className='border-border bg-muted/25 text-muted-foreground rounded-md border px-3 py-2 text-xs leading-5'
+                                                data-testid='streaming-disabled-by-strategy'>
+                                                {t('streaming.disabledByStrategy')}
+                                            </div>
+                                        )}
                                         <div className='space-y-1.5'>
                                             <Label htmlFor='stream-mode-select'>{t('streaming.mode')}</Label>
                                             <Tooltip>

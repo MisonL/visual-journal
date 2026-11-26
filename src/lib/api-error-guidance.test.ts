@@ -16,6 +16,19 @@ it('normalizes transport response-format errors to upstream availability', () =>
     assert.equal(classifyApiErrorCode('upstream_response_format', '上游返回 HTML 页面'), 'upstream_unavailable');
 });
 
+it('classifies upstream content-safety rejections instead of validation errors', () => {
+    const realUpstreamMessage =
+        '400 Your request was rejected by the safety system. If you believe this is an error, contact us at help.openai.com and include the request ID f0d5e5f0-59d5-4ef3-832f-a872850c8f41.';
+    assert.equal(classifyApiErrorCode(undefined, realUpstreamMessage), 'upstream_content_policy');
+    assert.equal(
+        classifyApiErrorCode(undefined, '400 Your prompt was rejected by the content policy.'),
+        'upstream_content_policy'
+    );
+    assert.equal(classifyApiErrorCode(undefined, '内容审核未通过'), 'upstream_content_policy');
+    // 普通校验错误不应误判为内容策略。
+    assert.equal(classifyApiErrorCode(undefined, 'prompt 必须是非空文本。'), undefined);
+});
+
 it('classifies exhausted healthy-channel selection separately from validation errors', () => {
     assert.equal(classifyApiErrorCode(undefined, '当前没有支持 images-sse 的健康渠道凭证。'), 'channel_unavailable');
     assert.equal(
@@ -30,6 +43,7 @@ const translate = (key: string, values?: Record<string, string | number>) => {
         'error.apiFailedWithAdvice': '{message}。建议：{advice}',
         'error.adviceAuth': '检查 API Key、访问码或渠道权限。',
         'error.adviceQuota': '上游渠道余额不足，请充值或切换可用渠道后重试。',
+        'error.adviceContentPolicy': '改写提示词后重试；重试相同提示词不会通过。',
         'error.adviceChannelUnavailable': '当前没有健康的图片渠道，请等待恢复探测或切换渠道配置。',
         'error.adviceValidation': '请修正请求参数后再试；这类错误不会通过重试解决。',
         'error.adviceRateLimit': '请求被限流。请稍后重试，或降低并发和图片数量。',
@@ -82,6 +96,18 @@ describe('buildUserFacingApiErrorMessage', () => {
             }),
             /没有健康的图片渠道/
         );
+    });
+
+    it('adds rephrase advice for upstream content-safety rejections', () => {
+        const message = buildUserFacingApiErrorMessage({
+            message: '提示词被上游内容安全策略拒绝，未生成图片。',
+            status: 400,
+            code: 'upstream_content_policy',
+            t: translate
+        });
+
+        assert.match(message, /改写提示词/);
+        assert.doesNotMatch(message, /修正请求参数/);
     });
 
     it('adds Cloudflare advice with the configured referral link for 524 failures', () => {

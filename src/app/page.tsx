@@ -2185,16 +2185,19 @@ export default function HomePage() {
                           : '';
                 const resultCode =
                     result.code ?? (typeof nestedError?.code === 'string' ? nestedError.code : undefined);
-                const localizedMessage =
-                    resultCode === 'image_dimension_mismatch'
-                        ? getLocalizedImageDimensionMismatchError(
-                              t,
-                              result.expected_dimensions,
-                              result.actual_dimensions
-                          )
-                        : getLocalizedImageRequestError(t, response.status);
+                const contentPolicyRejected =
+                    resultCode === 'upstream_content_policy' ||
+                    (upstreamErrorMessage !== '' &&
+                        classifyApiErrorCode(undefined, upstreamErrorMessage) === 'upstream_content_policy');
+                const localizedMessage = contentPolicyRejected
+                    ? t('error.contentPolicyRejected')
+                    : resultCode === 'image_dimension_mismatch'
+                      ? getLocalizedImageDimensionMismatchError(t, result.expected_dimensions, result.actual_dimensions)
+                      : getLocalizedImageRequestError(t, response.status);
                 throw new ApiRequestError(localizedMessage, response.status, {
-                    code: classifyApiErrorCode(resultCode, upstreamErrorMessage)
+                    code: contentPolicyRejected
+                        ? 'upstream_content_policy'
+                        : classifyApiErrorCode(resultCode, upstreamErrorMessage)
                 });
             }
 

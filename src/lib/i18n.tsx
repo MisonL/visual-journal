@@ -132,6 +132,7 @@ const messages: Record<Locale, Record<string, string>> = {
         'form.promptPlaceholder': '描述想生成的画面',
         'form.editPromptPlaceholder': '描述要修改、保留或增强的内容',
         'form.numberOfImages': '数量：{count}',
+        'form.countFixedByChannel': '当前渠道限制为 {count} 张，暂不支持多选。',
         'form.batchNumberOfImages': '批量任务：{count}',
         'form.size': '尺寸',
         'form.quality': '清晰度',
@@ -568,6 +569,9 @@ const messages: Record<Locale, Record<string, string>> = {
         'error.apiFailedWithAdvice': '{message}。建议：{advice}',
         'error.adviceAuth': '检查 API Key、访问码或渠道权限。',
         'error.adviceQuota': '上游渠道余额不足，请充值或切换可用渠道后重试。',
+        'error.contentPolicyRejected': '提示词被上游内容安全策略拒绝，未生成图片。',
+        'error.adviceContentPolicy':
+            '改写提示词后重试（换一种描述方式、去掉可能触发审核的措辞）；重试相同提示词不会通过。',
         'error.adviceChannelUnavailable': '当前没有健康的图片渠道，请等待恢复探测或切换渠道配置。',
         'error.adviceValidation': '请修正请求参数后再试；这类错误不会通过重试解决。',
         'error.adviceRateLimit': '请求被限流。请稍后重试，或降低并发和图片数量。',
@@ -747,6 +751,7 @@ const messages: Record<Locale, Record<string, string>> = {
         'form.promptPlaceholder': 'Describe the image you want to create',
         'form.editPromptPlaceholder': 'Describe what to change, preserve, or enhance',
         'form.numberOfImages': 'Images: {count}',
+        'form.countFixedByChannel': 'This channel allows only {count} image; multiple images are unavailable.',
         'form.batchNumberOfImages': 'Batch tasks: {count}',
         'form.size': 'Size',
         'form.quality': 'Quality',
@@ -1217,6 +1222,10 @@ const messages: Record<Locale, Record<string, string>> = {
         'error.apiFailedWithAdvice': '{message}. Recommendation: {advice}',
         'error.adviceAuth': 'Check the API Key, access code, or channel permissions.',
         'error.adviceQuota': 'The upstream channel has insufficient balance. Top up or switch to an available channel.',
+        'error.contentPolicyRejected':
+            'The prompt was rejected by the upstream content safety policy; no image was generated.',
+        'error.adviceContentPolicy':
+            'Rephrase the prompt and try again (describe it differently, remove wording that may trigger moderation). Retrying the same prompt will not pass.',
         'error.adviceChannelUnavailable':
             'No healthy image channel is available. Wait for recovery or switch channels.',
         'error.adviceValidation': 'Correct the request parameters and try again; retrying will not fix this error.',

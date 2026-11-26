@@ -57,6 +57,7 @@ export function buildApiErrorNotice(message: string): ApiErrorNotice {
 
 function buildApiErrorAdvice(status: number | undefined, code: string | undefined, t: Translate): string | null {
     if (code === 'upstream_quota_exhausted') return t('error.adviceQuota');
+    if (code === 'upstream_content_policy') return t('error.adviceContentPolicy');
     if (code === 'channel_unavailable') return t('error.adviceChannelUnavailable');
     if (code === 'validation_error') return t('error.adviceValidation');
     if (status === 401 || status === 403) return t('error.adviceAuth');
@@ -74,6 +75,18 @@ export function classifyApiErrorCode(code: unknown, message: string): string | u
     const normalized = message.toLowerCase();
     if (normalized.includes('insufficient_balance') || normalized.includes('insufficient account balance')) {
         return 'upstream_quota_exhausted';
+    }
+    // 上游内容安全拒绝（OpenAI 原文 "rejected by the safety system" 及常见中转措辞）。
+    // 这类错误重试相同提示词无效，必须让用户看到真实原因并改写提示词。
+    if (
+        normalized.includes('safety system') ||
+        normalized.includes('rejected by the safety') ||
+        normalized.includes('content policy') ||
+        normalized.includes('content_policy') ||
+        normalized.includes('内容审核') ||
+        normalized.includes('敏感内容')
+    ) {
+        return 'upstream_content_policy';
     }
     if (normalized.includes('健康渠道') && (normalized.includes('没有支持') || normalized.includes('没有可用'))) {
         return 'channel_unavailable';
